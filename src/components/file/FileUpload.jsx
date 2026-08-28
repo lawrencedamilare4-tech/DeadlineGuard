@@ -211,7 +211,7 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
       </div>
 
       {/* Upload button */}
-      {file && (
+      {file && status != 'uploading' && (
         <button
           onClick={handleUpload}
           disabled={!allFieldsFilled}

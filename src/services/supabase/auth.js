@@ -47,30 +47,28 @@ export function onAuthStateChange(callback) {
  * @param {string} walletAddress 
  * @returns {Promise<{user: any, session: any}>}
  */
+
 export async function signInWithWallet(walletAddress) {
-  // First, attempt anonymous sign-in (if enabled)
-  const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
-  if (!anonError) {
-    return anonData;
+  // First, check if we already have a session
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    // Update metadata (optional)
+    await supabase.auth.updateUser({
+      data: { wallet_address: walletAddress },
+    });
+    return { user: session.user, session };
   }
 
-  // Fallback: create deterministic email/password user
-  const email = `wallet-${walletAddress.toLowerCase()}@deadlineguard.local`;
-  const password = 'DeadlineGuardWallet123!'; // Strong enough for demo, but can be improved
+  // If no session, sign in anonymously
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error) throw error;
 
-  // Try to sign in first (in case user already exists)
-  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-  if (!signInError) return signInData;
+  // Store wallet address in metadata
+  if (data?.user) {
+    await supabase.auth.updateUser({
+      data: { wallet_address: walletAddress },
+    });
+  }
 
-  // If not exists, sign up
-  const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-    email,
-    password,
-  });
-  if (signUpError) throw signUpError;
-  return signUpData;
+  return data;
 }
-

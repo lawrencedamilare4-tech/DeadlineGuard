@@ -150,6 +150,35 @@ export const FilecoinProvider = ({ children }) => {
     }
   }, [synapseReady]);
 
+  useEffect(() => {
+  const savedWallet = localStorage.getItem('deadlineguard_wallet');
+  if (savedWallet) {
+    setWallet(savedWallet);
+    setConnected(true);
+
+    const reinitialize = async () => {
+      try {
+        await FilecoinService.initializeSynapse(savedWallet);
+        setSynapseReady(true);
+
+        const paymentStatus = await FilecoinService.getPaymentStatus();
+        setBalance(paymentStatus.balance || 0);
+        setDepositedBalance(paymentStatus.depositedBalance || 0);
+        setAvailableForStorage(paymentStatus.availableForStorage || 0);
+        setLockedBalance(paymentStatus.lockedBalance || 0);
+        setSpendRate(paymentStatus.spendRate || 0);
+        setRunway(paymentStatus.runway || Infinity);
+      } catch (err) {
+        console.warn('[Filecoin] Re-init failed:', err.message);
+        setSynapseReady(false);
+        // Keep connected = true so UI shows wallet, user can reconnect
+      }
+    };
+
+    reinitialize();
+  }
+}, []);
+
   const value = {
     wallet,
     balance,
