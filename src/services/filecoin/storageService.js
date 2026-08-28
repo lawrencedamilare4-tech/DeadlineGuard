@@ -8,9 +8,6 @@ export async function uploadFile(file, options = {}) {
     throw new Error('Synapse storage module not available. Please reconnect your wallet.');
   }
 
-  console.log('[Filecoin] Starting upload...');
-  console.log('[Filecoin] File:', file.name, 'Size:', file.size);
-
   const fileBuffer = await file.arrayBuffer();
   let bytes = new Uint8Array(fileBuffer);
 
@@ -20,38 +17,43 @@ export async function uploadFile(file, options = {}) {
     bytes = padded;
   }
 
-  // 1) Prepare account - THIS IS WHERE PAYMENT HAPPENS
-  console.log('[Filecoin] Preparing account (funding)...');
+  // Prepare account
   const prep = await synapse.storage.prepare({
     dataSize: BigInt(bytes.byteLength),
   });
 
-  console.log('[Filecoin] Prepare result:', {
-    hasTransaction: !!prep?.transaction,
-    costs: prep?.costs ? 'available' : 'none',
-  });
-
-  if (prep && prep.transaction) {
-    console.log('[Filecoin] Executing funding transaction...');
-    console.log('[Filecoin] This will debit USDFC from your wallet');
-    
-    const { hash } = await prep.transaction.execute();
-    console.log('[Filecoin] Payment transaction hash:', hash);
-    console.log('[Filecoin] USDFC debited!');
-  } else {
-    console.log('[Filecoin] No transaction needed - account already funded');
+  if (prep?.transaction) {
+    await prep.transaction.execute();
   }
 
-  // 2) Upload
-  console.log('[Filecoin] Uploading to Filecoin...');
+  // Build metadata for Filecoin
+  const filecoinMetadata = {
+    fileName: options.fileName || file.name,
+    fileSize: String(file.size),
+    fileType: file.type || 'application/octet-stream',
+    courseName: options.courseName || '',
+    assignmentTitle: options.assignmentTitle || '',
+    dueDate: options.dueDate || '',
+    gradeWeight: String(options.gradeWeight || ''),
+    source: 'deadlineguard',
+    uploadedAt: new Date().toISOString(),
+  };
+
+  console.log('[Filecoin] Uploading with metadata:', filecoinMetadata);
+
+  // Upload with metadata
   const result = await synapse.storage.upload(bytes, {
     onProgress: options.onProgress,
+    metadata: filecoinMetadata,
   });
 
-  console.log('[Filecoin] PieceCID:', result?.pieceCid);
+  const pieceCid = result?.pieceCid || result?.piece_cid || 'unknown';
+
+  console.log('[Filecoin] PieceCID:', pieceCid);
 
   return {
-    pieceCid: result?.pieceCid || result?.piece_cid || 'unknown',
+    pieceCid,
+    metadata: filecoinMetadata,
     storageInfo: {
       providerCount: result?.copies?.length || 2,
       healthyProviderCount: result?.copies?.filter(c => c?.healthy !== false).length || 2,
@@ -62,4 +64,16 @@ export async function uploadFile(file, options = {}) {
       providers: [],
     },
   };
+}
+
+export async function getStorageStatus(pieceCid) {
+  const synapse = getSynapse();
+  
+  try {
+    const info = await synapse.storage.getStorageInfo({ pieceCid });
+    return info;
+  } catch (err) {
+    logger.warn('[Filecoin] getStorageStatus failed:', err.message);
+    return null;
+  }
 }

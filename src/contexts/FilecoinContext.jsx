@@ -101,54 +101,53 @@ const connectWallet = useCallback(async () => {
   }
 }, []);
 
-  const fundWallet = useCallback(async (amount = 10) => {
-    setFunding(true);
-    setError(null);
+const fundWallet = useCallback(async (amount = 10) => {
+  setFunding(true);
+  setError(null);
+  
+  try {
+    const synapse = FilecoinService.getSynapse();
+    const payments = synapse.payments;
     
-    try {
-      const synapse = FilecoinService.getSynapse();
-      const payments = synapse.payments;
-      
-      console.log('[Filecoin] Payment methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(payments)));
-      
-      const amountWei = BigInt(Math.floor(amount * 1e18));
-      
-      if (typeof payments.approve === 'function') {
-        console.log('[Filecoin] Approving USDFC...');
-        await payments.approve({ token: 'USDFC', amount: amountWei });
-      }
-      
-      if (typeof payments.deposit === 'function') {
-        console.log('[Filecoin] Depositing USDFC...');
-        await payments.deposit({ token: 'USDFC', amount: amountWei });
-      }
-      
-      if (typeof payments.approveOperator === 'function') {
-        console.log('[Filecoin] Approving operator...');
-        await payments.approveOperator({
-          operator: '0x02925630df557F957f70E112bA06e50965417CA0',
-        });
-      }
-      
-      console.log('[Filecoin] Wallet fully funded');
-      
-      const paymentStatus = await FilecoinService.getPaymentStatus();
-      setBalance(paymentStatus.balance);
-      setDepositedBalance(paymentStatus.depositedBalance || 0);
-      setAvailableForStorage(paymentStatus.availableForStorage || 0);
-      setLockedBalance(paymentStatus.lockedBalance || 0);
-      setSpendRate(paymentStatus.spendRate);
-      setRunway(paymentStatus.runway);
-      
-      return true;
-    } catch (err) {
-      console.error('[Filecoin] Funding failed:', err);
-      setError(err.message);
-      throw err;
-    } finally {
-      setFunding(false);
+    const amountWei = BigInt(Math.floor(amount * 1e18));
+    
+    // Approve
+    if (typeof payments.approve === 'function') {
+      await payments.approve({ token: 'USDFC', amount: amountWei });
     }
-  }, []);
+    
+    // Deposit
+    if (typeof payments.deposit === 'function') {
+      await payments.deposit({ token: 'USDFC', amount: amountWei });
+    }
+    
+    // Approve operator
+    if (typeof payments.approveOperator === 'function') {
+      await payments.approveOperator({
+        operator: '0x02925630df557F957f70E112bA06e50965417CA0',
+      });
+    }
+    
+    console.log('[Filecoin] Wallet funded with', amount, 'USDFC');
+    
+    // Refresh ALL balances
+    const paymentStatus = await FilecoinService.getPaymentStatus();
+    setBalance(paymentStatus.balance);
+    setDepositedBalance(paymentStatus.depositedBalance || 0);
+    setAvailableForStorage(paymentStatus.availableForStorage || 0);
+    setLockedBalance(paymentStatus.lockedBalance || 0);
+    setSpendRate(paymentStatus.spendRate);
+    setRunway(paymentStatus.runway);
+    
+    return true;
+  } catch (err) {
+    console.error('[Filecoin] Funding failed:', err);
+    setError(err.message);
+    throw err;
+  } finally {
+    setFunding(false);
+  }
+}, []);
 
   const disconnectWallet = useCallback(() => {
     localStorage.removeItem('deadlineguard_wallet');

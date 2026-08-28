@@ -1,91 +1,80 @@
-import { getSynapse } from './synapseService';
+import { getSynapse, getWalletAddress } from './synapseService';
+import { ethers } from 'ethers';
 import { logger } from '../../utils/logger';
+
+// Filecoin Calibration contract addresses
+const USDFC_ADDRESS = '0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0';
+const PAYMENTS_ADDRESS = '0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0';
+
+// Payments contract ABI (from your SDK config)
+const PAYMENTS_ABI = [
+  'function accounts(address token, address owner) view returns (uint256 funds, uint256 lockedFunds, bool frozen)',
+  'function operatorApprovals(address token, address client, address operator) view returns (bool isApproved, uint256 rateAllowance, uint256 rateUsed, uint256 lockupAllowance, uint256 lockupUsed)',
+];
 
 export async function getPaymentStatus() {
   const synapse = getSynapse();
   
   try {
     const payments = synapse.payments;
-    
-    // 1. Wallet balance (MetaMask) - this is your full balance
+    const address = getWalletAddress();
+
+    // 1. MetaMask wallet balance
     let walletBalance = 0;
     try {
       const walletBigInt = await payments.walletBalance({ token: 'USDFC' });
       walletBalance = parseFloat(walletBigInt.toString()) / 1e18;
-      console.log('[Payment] Wallet balance (MetaMask):', walletBalance);
     } catch (e) {
       console.warn('[Payment] walletBalance failed:', e.message);
     }
 
-    // 2. Deposited balance - ONLY from Payments contract, NO fallback
+    // 2. Query Payments contract directly using ethers
     let depositedBalance = 0;
     let lockedBalance = 0;
-    let availableForStorage = 0;
-    
-    // Method A: getOperatorApprovals
+
     try {
-      if (typeof payments.getOperatorApprovals === 'function') {
-        const approvals = await payments.getOperatorApprovals();
-        console.log('[Payment] Raw operator approvals:', approvals);
-        
-        if (approvals && typeof approvals === 'object') {
-          // Check for lockupUsed (funds locked for storage)
-          if (approvals.lockupUsed) {
-            lockedBalance = parseFloat(approvals.lockupUsed.toString()) / 1e18;
-          }
-          if (approvals.rateUsed) {
-            lockedBalance += parseFloat(approvals.rateUsed.toString()) / 1e18;
-          }
-          if (approvals.rateAllowance) {
-            availableForStorage = parseFloat(approvals.rateAllowance.toString()) / 1e18;
-          }
-          if (approvals.lockupAllowance) {
-            availableForStorage += parseFloat(approvals.lockupAllowance.toString()) / 1e18;
-          }
-          
-          // Deposited = locked + available
-          depositedBalance = lockedBalance + availableForStorage;
-        }
+      if (!window.ethereum) throw new Error('No provider');
+      
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const paymentsContract = new ethers.Contract(PAYMENTS_ADDRESS, PAYMENTS_ABI, provider);
+
+      // Get account info (funds + lockedFunds)
+      const accountInfo = await paymentsContract.accounts(USDFC_ADDRESS, address);
+      console.log('[Payment] Contract accounts:', accountInfo);
+
+      if (accountInfo) {
+        depositedBalance = parseFloat(accountInfo.funds.toString()) / 1e18;
+        lockedBalance = parseFloat(accountInfo.lockedFunds.toString()) / 1e18;
       }
-    } catch (e) {
-      console.warn('[Payment] getOperatorApprovals failed:', e.message);
+
+      console.log('[Payment] From contract:', {
+        deposited: depositedBalance,
+        locked: lockedBalance,
+      });
+
+    } catch (contractErr) {
+      console.warn('[Payment] Contract query failed:', contractErr.message);
     }
 
-    // Method B: Check accounts
-    if (depositedBalance === 0) {
-      try {
-        if (typeof payments.accounts === 'function') {
-          const account = await payments.accounts({ token: 'USDFC', owner: walletAddress });
-          console.log('[Payment] Account info:', account);
-          
-          if (account?.funds) {
-            depositedBalance = parseFloat(account.funds.toString()) / 1e18;
-          }
-          if (account?.lockedFunds) {
-            lockedBalance = parseFloat(account.lockedFunds.toString()) / 1e18;
-          }
-        }
-      } catch (e) {
-        console.warn('[Payment] accounts failed:', e.message);
-      }
-    }
-
-    console.log('[Payment] Results:', {
-      walletBalance,
-      depositedBalance,
-      lockedBalance,
-      availableForStorage,
-    });
+    // Available = deposited - locked
+    const availableForStorage = Math.max(0, depositedBalance - lockedBalance);
 
     // Spend rate
     const monthlyCost = 0.05;
     const epochsPerMonth = 86400;
     const spendRate = monthlyCost / epochsPerMonth;
-    
-    // Runway based on available (not wallet balance)
+
+    // Runway
     const runway = spendRate > 0 && availableForStorage > 0 
       ? availableForStorage / spendRate 
       : Infinity;
+
+    console.log('[Payment] FINAL:', {
+      walletBalance,
+      depositedBalance,
+      lockedBalance,
+      availableForStorage,
+    });
 
     return {
       balance: walletBalance,

@@ -5,7 +5,7 @@ import { useSupabase } from '../../hooks/useSupabase';
 import { useFilecoin } from '../../contexts/FilecoinContext';
 import { supabase } from '../../services/supabase/client';
 
-const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validateForm }) => {
+const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }) => {
   const { user, loading: authLoading } = useSupabase();
   const { connected = false, synapseReady = false, wallet, refreshPaymentStatus } = useFilecoin() || {};
   
@@ -30,7 +30,7 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validat
     return <div className="text-center py-10 text-gray-400">Please sign in to upload files.</div>;
   }
 
-  const canUpload = connected && synapseReady;
+  const allFieldsFilled = isFormValid && file && connected && synapseReady;
 
   const handleFileSelect = (e) => {
     const selected = e.target.files[0];
@@ -40,28 +40,12 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validat
       setError(null);
       setPieceCid(null);
       setUploadLog([]);
-      if (onFileSelect) onFileSelect(selected);
     }
   };
 
   const handleUpload = async () => {
-    if (validateForm) {
-      const validationError = validateForm();
-      if (validationError) {
-        setError(validationError);
-        setStatus('error');
-        return;
-      }
-    }
-
-    if (!file) {
-      setError('Please select a file.');
-      setStatus('error');
-      return;
-    }
-
-    if (!connected || !synapseReady) {
-      setError('Please connect your wallet first.');
+    if (!allFieldsFilled) {
+      setError('Please fill all academic fields and connect your wallet.');
       setStatus('error');
       return;
     }
@@ -73,14 +57,23 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validat
 
     try {
       addLog(`[Upload] Starting: ${file.name}`);
-      addLog(`[Upload] Size: ${(file.size / (1024 * 1024)).toFixed(2)} MB`);
+      addLog(`[Upload] Course: ${academicMeta.courseName}`);
+      addLog(`[Upload] Assignment: ${academicMeta.assignmentTitle}`);
+      addLog(`[Upload] Due: ${academicMeta.dueDate}`);
+      addLog(`[Upload] Grade Weight: ${academicMeta.gradeWeight}%`);
 
-      // Upload to Filecoin
+      // Upload to Filecoin WITH FULL METADATA
       const result = await FilecoinService.uploadFile(file, {
         onProgress: (percent) => {
           setProgress(percent);
           if (percent % 25 === 0) addLog(`[Upload] Progress: ${Math.round(percent)}%`);
         },
+        // Pass academic metadata to store on Filecoin
+        fileName: file.name,
+        courseName: academicMeta.courseName,
+        assignmentTitle: academicMeta.assignmentTitle,
+        dueDate: academicMeta.dueDate,
+        gradeWeight: academicMeta.gradeWeight,
       });
 
       const cid = typeof result?.pieceCid === 'string' 
@@ -89,55 +82,102 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validat
 
       setPieceCid(cid);
       addLog(`[Upload] PieceCID: ${cid}`);
-      addLog(`[Upload] Providers: ${result?.storageInfo?.providerCount || 2}`);
+      addLog(`[Upload] Metadata stored on Filecoin: fileName, courseName, assignmentTitle, dueDate, gradeWeight`);
       setStatus('storing');
 
-      // Save minimal metadata to Supabase
+      // Create course in Supabase (for reference)
+      let courseId = null;
       try {
-        const { data: insertedFile, error: insertError } = await supabase
+        const { data: existingCourse } = await supabase
+          .from('courses')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('name', academicMeta.courseName)
+          .maybeSingle();
+
+        if (existingCourse) {
+          courseId = existingCourse.id;
+        } else {
+          const { data: newCourse } = await supabase
+            .from('courses')
+            .insert({
+              user_id: user.id,
+              name: academicMeta.courseName,
+              semester: new Date().getFullYear().toString(),
+            })
+            .select()
+            .single();
+          if (newCourse) courseId = newCourse.id;
+        }
+      } catch (e) {
+        addLog(`[Upload] Course warning: ${e.message}`);
+      }
+
+      // Create assignment in Supabase
+      let assignmentId = null;
+      try {
+        const { data: assignment } = await supabase
+          .from('assignments')
+          .insert({
+            user_id: user.id,
+            course_id: courseId,
+            title: academicMeta.assignmentTitle,
+            due_date: academicMeta.dueDate,
+            grade_weight: academicMeta.gradeWeight,
+            status: 'pending',
+          })
+          .select()
+          .single();
+        if (assignment) assignmentId = assignment.id;
+      } catch (e) {
+        addLog(`[Upload] Assignment warning: ${e.message}`);
+      }
+
+      // Calculate scores
+      const now = Date.now();
+      const due = new Date(academicMeta.dueDate).getTime();
+      const daysUntilDue = Math.max(0, (due - now) / (1000 * 60 * 60 * 24));
+      const priorityScore = Math.min(1, 
+        ((daysUntilDue <= 7 ? 1 : daysUntilDue <= 14 ? 0.7 : daysUntilDue <= 30 ? 0.4 : 0.2) + 
+         (academicMeta.gradeWeight / 100)) / 2
+      );
+      const urgencyScore = daysUntilDue <= 3 ? 1 : daysUntilDue <= 7 ? 0.8 : daysUntilDue <= 14 ? 0.5 : daysUntilDue <= 30 ? 0.3 : 0.1;
+
+      // Save file metadata to Supabase (as backup index)
+      try {
+        const { data: insertedFile } = await supabase
           .from('files')
           .insert({
             user_id: user.id,
+            course_id: courseId,
+            assignment_id: assignmentId,
             file_name: file.name,
             file_type: file.type || 'application/octet-stream',
             file_size: file.size,
             piece_cid: cid,
             status: 'active',
             temperature: 'warm',
-            priority_score: 0.5,
-            urgency_score: 0.5,
+            priority_score: priorityScore,
+            urgency_score: urgencyScore,
             last_modified: new Date().toISOString(),
             last_accessed: new Date().toISOString(),
           })
           .select()
           .single();
-
-        if (insertError) {
-          addLog(`[Upload] Supabase insert warning: ${insertError.message}`);
-        } else {
-          addLog(`[Upload] Supabase saved: ${insertedFile?.id}`);
-        }
-      } catch (supabaseErr) {
-        addLog(`[Upload] Supabase error (non-fatal): ${supabaseErr.message}`);
+        addLog(`[Upload] Supabase backup saved: ${insertedFile?.id}`);
+      } catch (e) {
+        addLog(`[Upload] Supabase error (non-fatal): ${e.message}`);
       }
 
-      // Refresh wallet balance after upload
       if (typeof refreshPaymentStatus === 'function') {
-        addLog('[Upload] Refreshing wallet balance...');
-        try {
-          await refreshPaymentStatus();
-          addLog('[Upload] Balance refreshed');
-        } catch (refreshErr) {
-          addLog(`[Upload] Balance refresh failed: ${refreshErr.message}`);
-        }
+        await refreshPaymentStatus();
+        addLog('[Upload] Balance refreshed');
       }
 
       setStatus('done');
-      addLog('[Upload] COMPLETE!');
-      
+      addLog('[Upload] COMPLETE! File stored on Filecoin with full metadata.');
       if (onUploadComplete) onUploadComplete({ pieceCid: cid });
     } catch (err) {
-      console.error('[Upload] Failed:', err);
       addLog(`[Upload] ERROR: ${err.message}`);
       setError(err.message || 'Upload failed');
       setStatus('error');
@@ -159,10 +199,6 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validat
           <span className="text-red-500">Not connected</span>
         )}
       </div>
-
-      {!connected && (
-        <p className="text-sm text-red-500 mb-3">Please connect your wallet to upload to Filecoin.</p>
-      )}
 
       {/* File selection */}
       <div
@@ -187,14 +223,21 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validat
         )}
       </div>
 
+      {/* Validation Message */}
+      {!allFieldsFilled && (
+        <p className="mt-3 text-xs text-yellow-500">
+          ⚠️ Fill all academic fields, select a file, and connect wallet to enable upload.
+        </p>
+      )}
+
       {/* Upload button */}
-      {file && status === 'idle' && (
+      {file && (
         <button
           onClick={handleUpload}
-          disabled={!canUpload}
-          className="mt-4 w-full bg-shamrock hover:bg-shamrock-dark text-white font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-50"
+          disabled={!allFieldsFilled}
+          className="mt-4 w-full bg-shamrock hover:bg-shamrock-dark text-white font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Upload to Filecoin
+          {allFieldsFilled ? 'Upload to Filecoin' : 'Fill All Fields to Upload'}
         </button>
       )}
 
@@ -202,7 +245,7 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validat
       {status === 'uploading' && (
         <div className="mt-4">
           <div className="flex items-center justify-between text-sm mb-2">
-            <span className="text-gray-600 dark:text-gray-300">Uploading...</span>
+            <span className="text-gray-600 dark:text-gray-300">Uploading to Filecoin...</span>
             <span>{Math.round(progress)}%</span>
           </div>
           <div className="w-full bg-gray-200 dark:bg-shamrock-darker rounded-full h-2">
@@ -226,7 +269,7 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, onFileSelect, validat
         <div className="mt-4 space-y-2">
           <div className="flex items-center text-green-600 dark:text-green-400">
             <CheckCircle className="h-5 w-5 mr-2" />
-            <span>Stored on Filecoin</span>
+            <span>Stored on Filecoin with Metadata</span>
           </div>
           <p className="text-sm font-mono text-gray-600 dark:text-gray-300">
             PieceCID: {String(pieceCid || 'unknown').slice(0, 40)}

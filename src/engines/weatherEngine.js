@@ -7,54 +7,41 @@ export const WEATHER_STATES = {
 };
 
 export function calculateWeather(metrics) {
-  const { storageUtilization, runwayEpochs, providerHealth, pdpStatus, upcomingDemand } = metrics;
+  const { storageUtilization, availableForStorage, depositedBalance, totalFiles } = metrics;
 
-  console.log('[Weather] Metrics received:', {
-    storageUtilization,
-    runwayEpochs,
-    providerHealth,
-    pdpStatus,
-  });
+  console.log('[Weather] Metrics:', { storageUtilization, availableForStorage, depositedBalance, totalFiles });
 
-  // Safe runway: treat Infinity/null/undefined as very large
-  const effectiveRunway = runwayEpochs === Infinity || runwayEpochs === null || runwayEpochs === undefined || isNaN(runwayEpochs)
-    ? 999999
-    : Number(runwayEpochs);
-
-  // Safe provider health: default to 1 (healthy) if invalid
-  const effectiveHealth = providerHealth === null || providerHealth === undefined || isNaN(providerHealth)
-    ? 1
-    : Math.max(0, Math.min(1, providerHealth));
-
-  // Safe storage utilization
-  const effectiveUtilization = storageUtilization === null || storageUtilization === undefined || isNaN(storageUtilization)
-    ? 0
-    : Math.max(0, Math.min(1, storageUtilization));
-
-  console.log('[Weather] Effective values:', {
-    effectiveRunway,
-    effectiveHealth,
-    effectiveUtilization,
-  });
+  // Use DEPOSITED balance (not wallet balance) for weather
+  const effectiveBalance = availableForStorage ?? depositedBalance ?? 0;
 
   let state = WEATHER_STATES.CLEAR;
   let description = 'Clear skies. Storage healthy.';
 
-  // CRITICAL only if truly bad conditions
-  if (effectiveRunway <= 3 || effectiveUtilization > 95 || effectiveHealth < 0.5) {
+  // Weather based on DEPOSITED balance
+  if (effectiveBalance <= 0.01) {
     state = WEATHER_STATES.CRITICAL;
-    description = 'Critical storage condition. Immediate action required.';
-  } else if (effectiveRunway <= 6 || effectiveUtilization > 85 || effectiveHealth < 0.75) {
+    description = 'Critical: No available funds. Deposit USDFC to continue storing files.';
+  } else if (effectiveBalance < 0.10) {
     state = WEATHER_STATES.STORM;
-    description = 'Storm conditions. Storage pressure significant.';
-  } else if (effectiveRunway <= 10 || effectiveUtilization > 70 || effectiveHealth < 0.9) {
+    description = `Storm: Only $${effectiveBalance.toFixed(2)} available. Not enough for another upload.`;
+  } else if (effectiveBalance < 0.50) {
     state = WEATHER_STATES.RAIN;
-    description = 'Rain. Storage pressure increasing.';
-  } else if (effectiveRunway <= 14 || effectiveUtilization > 60) {
+    description = `Rain: $${effectiveBalance.toFixed(2)} available. Deposit more for multiple uploads.`;
+  } else if (effectiveBalance < 1.00) {
     state = WEATHER_STATES.WATCH;
-    description = 'Watch. Conditions deteriorating.';
+    description = `Watch: $${effectiveBalance.toFixed(2)} available. Consider topping up.`;
+  } else {
+    state = WEATHER_STATES.CLEAR;
+    description = `Clear: $${effectiveBalance.toFixed(2)} available for storage.`;
   }
 
-  console.log('[Weather] Final state:', state);
+  // Adjust for storage utilization
+  if (storageUtilization > 0.9 && state === WEATHER_STATES.CLEAR) {
+    state = WEATHER_STATES.WATCH;
+    description = 'Watch: Storage nearly full.';
+  }
+
+  console.log('[Weather] State:', state, description);
+
   return { state, description };
 }
