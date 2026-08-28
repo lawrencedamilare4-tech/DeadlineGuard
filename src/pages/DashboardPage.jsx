@@ -5,9 +5,11 @@ import { RunwayCard } from '../components/dashboard/RunwayCard';
 import StorageHealth from '../components/dashboard/StorageHealth';
 import ForecastPanel from '../components/dashboard/ForecastPanel';
 import { FilecoinService } from '../services/filecoin';
+import { supabase } from '../services/supabase/client';
 import { calculateWeather } from '../engines/weatherEngine';
 import { useFilecoin } from '../contexts/FilecoinContext';
-import { Loader2, RefreshCw, Database, HardDrive, Wallet, Lock, TrendingDown } from 'lucide-react';
+import { Loader2, RefreshCw, Database, HardDrive, Wallet, Lock, TrendingDown, FileText, Copy, CheckCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const DashboardPage = () => {
   const { 
@@ -26,40 +28,33 @@ const DashboardPage = () => {
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [onChainPieces, setOnChainPieces] = useState([]);
-  const [onChainDataSets, setOnChainDataSets] = useState([]);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
   const [totalStorageSize, setTotalStorageSize] = useState(0);
+  const [copiedCid, setCopiedCid] = useState(null);
 
-  const fetchOnChainData = useCallback(async () => {
-    // Don't try if synapse is not ready
-    if (!synapseReady) {
-      console.log('[Dashboard] Synapse not ready, skipping on-chain fetch');
-      setLoading(false);
-      return;
-    }
-
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    
     try {
-      const synapse = FilecoinService.getSynapse();
-      const storage = synapse.storage;
-      
-      let dataSets = [];
-      let allPieces = [];
-      let totalSize = 0;
+      // Fetch files from Supabase (index)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: filesData, error: filesError } = await supabase
+          .from('files')
+          .select('*, filecoin_storage(*)')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
 
-      try {
-        if (typeof storage.findDataSets === 'function') {
-          dataSets = await storage.findDataSets({ source: 'deadlineguard' });
+        if (!filesError) {
+          setUploadedFiles(filesData || []);
+          const total = (filesData || []).reduce((sum, f) => sum + (f.file_size || 0), 0);
+          setTotalStorageSize(total);
         }
-      } catch (e) {
-        console.warn('[Dashboard] findDataSets:', e.message);
       }
 
-      setOnChainDataSets(dataSets || []);
-      setOnChainPieces(allPieces);
-      setTotalStorageSize(totalSize);
-
+      // Calculate weather
       const providerHealth = 1;
-      const storageUtilization = 0;
+      const storageUtilization = totalStorageSize > 0 ? Math.min(1, totalStorageSize / (10 * 1024 * 1024 * 1024)) : 0;
       const effectiveRunway = walletRunway ?? 999999;
 
       setWeather(calculateWeather({
@@ -71,15 +66,15 @@ const DashboardPage = () => {
       }));
 
     } catch (err) {
-      console.warn('[Dashboard] On-chain fetch failed:', err.message);
+      console.warn('[Dashboard] Fetch warning:', err.message);
     } finally {
       setLoading(false);
     }
-  }, [synapseReady, walletRunway]);
+  }, [walletRunway]);
 
   useEffect(() => {
-    fetchOnChainData();
-  }, [fetchOnChainData]);
+    fetchData();
+  }, [fetchData]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -87,11 +82,27 @@ const DashboardPage = () => {
       if (typeof refreshPaymentStatus === 'function') {
         await refreshPaymentStatus();
       }
-      await fetchOnChainData();
+      await fetchData();
     } catch (e) {
-      console.warn('[Dashboard] Refresh failed:', e.message);
+      console.warn('[Dashboard] Refresh warning:', e.message);
     }
     setRefreshing(false);
+  };
+
+  const copyCid = (cid) => {
+    if (cid) {
+      navigator.clipboard.writeText(String(cid));
+      setCopiedCid(String(cid));
+      setTimeout(() => setCopiedCid(null), 2000);
+    }
+  };
+
+  const formatBytes = (bytes) => {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   if (loading) {
@@ -132,7 +143,7 @@ const DashboardPage = () => {
           {/* Weather Hero */}
           <WeatherHero weather={weather} />
 
-          {/* Payment Stats */}
+          {/* Payment Stats - FROM FILECOIN */}
           <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
               <p className="text-xs text-gray-500 flex items-center gap-1">
@@ -163,16 +174,16 @@ const DashboardPage = () => {
           {/* Storage Stats */}
           <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-              <p className="text-xs text-gray-500">Data Sets</p>
-              <p className="text-lg font-bold text-white">{onChainDataSets.length}</p>
+              <p className="text-xs text-gray-500">Files Uploaded</p>
+              <p className="text-2xl font-bold text-white">{uploadedFiles.length}</p>
             </div>
             <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-              <p className="text-xs text-gray-500">Pieces</p>
-              <p className="text-lg font-bold text-white">{onChainPieces.length}</p>
+              <p className="text-xs text-gray-500">Total Storage Used</p>
+              <p className="text-2xl font-bold text-white">{formatBytes(totalStorageSize)}</p>
             </div>
             <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-              <p className="text-xs text-gray-500">Storage Used</p>
-              <p className="text-lg font-bold text-white">{(totalStorageSize / (1024 * 1024)).toFixed(2)} MB</p>
+              <p className="text-xs text-gray-500">Spend Rate</p>
+              <p className="text-2xl font-bold text-white">${spendRate?.toFixed(8) ?? '0.00'}/epoch</p>
             </div>
           </div>
 
@@ -182,6 +193,78 @@ const DashboardPage = () => {
               days={walletRunway === Infinity ? '∞' : Math.floor(walletRunway || 0)} 
               percentage={Math.min(100, (availableForStorage / Math.max(depositedBalance, 0.01)) * 100)} 
             />
+          </div>
+
+          {/* Uploaded Files */}
+          <div className="mt-8 bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker overflow-hidden">
+            <div className="p-4 border-b border-gray-200 dark:border-shamrock-darker">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <FileText className="h-5 w-5 text-shamrock" /> Uploaded Files
+              </h2>
+            </div>
+
+            {uploadedFiles.length === 0 ? (
+              <div className="p-8 text-center">
+                <FileText className="h-12 w-12 text-gray-500 mx-auto mb-3" />
+                <p className="text-gray-400">No files uploaded yet.</p>
+                <Link to="/dashboard/upload" className="inline-block mt-3 text-shamrock hover:underline">
+                  Upload your first file →
+                </Link>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-shamrock-darker">
+                      <th className="px-4 py-3 text-sm text-gray-500">File</th>
+                      <th className="px-4 py-3 text-sm text-gray-500">Size</th>
+                      <th className="px-4 py-3 text-sm text-gray-500">PieceCID</th>
+                      <th className="px-4 py-3 text-sm text-gray-500">Copies</th>
+                      <th className="px-4 py-3 text-sm text-gray-500">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadedFiles.map((file) => {
+                      const storage = file.filecoin_storage?.[0];
+                      return (
+                        <tr key={file.id} className="border-b border-gray-200 dark:border-shamrock-darker hover:bg-gray-50 dark:hover:bg-shamrock-darker/20">
+                          <td className="px-4 py-3">
+                            <span className="text-shamrock font-medium">{file.file_name}</span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                            {formatBytes(file.file_size)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono text-gray-500">
+                                {String(file.piece_cid || '—').slice(0, 20)}...
+                              </span>
+                              {file.piece_cid && (
+                                <button onClick={() => copyCid(file.piece_cid)} className="text-gray-400 hover:text-shamrock">
+                                  {copiedCid === String(file.piece_cid) ? (
+                                    <CheckCircle className="h-4 w-4 text-green-500" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                            {storage?.healthy_provider_count ?? '—'}/{storage?.provider_count ?? '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                              {file.status?.toUpperCase() || 'ACTIVE'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Storage Health & Forecast */}
