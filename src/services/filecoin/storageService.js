@@ -17,42 +17,44 @@ export async function uploadFile(file, options = {}) {
     bytes = padded;
   }
 
-  // Prepare account
-  const prep = await synapse.storage.prepare({
-    dataSize: BigInt(bytes.byteLength),
-  });
+  // Check if we should skip prepare
+  if (options.skipPrepare) {
+    console.log('[Upload] Skipping prepare() - account already funded');
+  } else {
+    console.log('[Upload] Running prepare()...');
+    const prep = await synapse.storage.prepare({
+      dataSize: BigInt(bytes.byteLength),
+    });
 
-  if (prep?.transaction) {
-    await prep.transaction.execute();
+    if (prep?.transaction) {
+      console.log('[Upload] Executing funding transaction...');
+      await prep.transaction.execute();
+    }
   }
 
-  // Build metadata for Filecoin
+  // Build metadata
   const filecoinMetadata = {
     fileName: options.fileName || file.name,
     fileSize: String(file.size),
-    fileType: file.type || 'application/octet-stream',
     courseName: options.courseName || '',
     assignmentTitle: options.assignmentTitle || '',
     dueDate: options.dueDate || '',
     gradeWeight: String(options.gradeWeight || ''),
+    walletAddress: options.walletAddress || '',
     source: 'deadlineguard',
     uploadedAt: new Date().toISOString(),
   };
 
-  console.log('[Filecoin] Uploading with metadata:', filecoinMetadata);
+  console.log('[Upload] Uploading to Filecoin...');
 
-  // Upload with metadata
+  // Upload
   const result = await synapse.storage.upload(bytes, {
     onProgress: options.onProgress,
     metadata: filecoinMetadata,
   });
 
-  const pieceCid = result?.pieceCid || result?.piece_cid || 'unknown';
-
-  console.log('[Filecoin] PieceCID:', pieceCid);
-
   return {
-    pieceCid,
+    pieceCid: result?.pieceCid || 'unknown',
     metadata: filecoinMetadata,
     storageInfo: {
       providerCount: result?.copies?.length || 2,

@@ -4,15 +4,17 @@ import { WeatherHero } from '../components/dashboard/WeatherHero';
 import { RunwayCard } from '../components/dashboard/RunwayCard';
 import StorageHealth from '../components/dashboard/StorageHealth';
 import ForecastPanel from '../components/dashboard/ForecastPanel';
-import { FilecoinService } from '../services/filecoin';
+import { supabase } from '../services/supabase/client';
 import { calculateWeather } from '../engines/weatherEngine';
 import { useFilecoin } from '../contexts/FilecoinContext';
 import { generateGroqReport } from '../services/ai/groqService';
 import { 
   Loader2, RefreshCw, Database, HardDrive, Wallet, Lock, TrendingDown, 
-  FileText, Copy, CheckCircle, Brain, Send, MessageCircle, Sparkles, Cloud
+  FileText, Copy, CheckCircle, Brain, Send, MessageCircle, Sparkles, Cloud, 
+  Calendar, AlertTriangle, Clock
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { FilecoinService } from '../services/filecoin';
 
 const DashboardPage = () => {
   const { 
@@ -21,19 +23,18 @@ const DashboardPage = () => {
     depositedBalance,
     availableForStorage,
     lockedBalance,
-    runway: walletRunway, 
     spendRate, 
     connected, 
-    synapseReady, 
     refreshPaymentStatus 
   } = useFilecoin();
 
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [onChainFiles, setOnChainFiles] = useState([]);
-  const [onChainDataSets, setOnChainDataSets] = useState([]);
+  const [validFiles, setValidFiles] = useState([]);
   const [totalStorageSize, setTotalStorageSize] = useState(0);
+  const [dueSoonFiles, setDueSoonFiles] = useState([]);
+  const [overdueFiles, setOverdueFiles] = useState([]);
   const [copiedCid, setCopiedCid] = useState(null);
   const [aiInsight, setAiInsight] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -41,118 +42,118 @@ const DashboardPage = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
-  const [debugLog, setDebugLog] = useState([]);
 
-  const addDebug = (msg) => {
-    console.log(msg);
-    setDebugLog((prev) => [...prev.slice(-10), msg]);
-  };
-
-  const fetchFromFilecoin = useCallback(async () => {
-    setLoading(true);
+const fetchValidFiles = useCallback(async () => {
+  setLoading(true);
+  
+  try {
+    // 1. Fetch files from Supabase (PieceCIDs)
+    let filesData = [];
     
-    try {
-      if (!synapseReady) {
-        addDebug('[Dashboard] Synapse not ready, skipping Filecoin fetch');
-        setLoading(false);
-        return;
-      }
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (user) {
+      const { data } = await supabase
+        .from('files')
+        .select('*, assignments(*), courses(*)')
+        .eq('user_id', user.id)
+        .not('piece_cid', 'is', null)
+        .order('created_at', { ascending: false });
+      filesData = data || [];
+    }
+    
+    if (filesData.length === 0 && wallet) {
+      const { data } = await supabase
+        .from('files')
+        .select('*, assignments(*), courses(*)')
+        .eq('wallet_address', wallet)
+        .not('piece_cid', 'is', null)
+        .order('created_at', { ascending: false });
+      filesData = data || [];
+    }
 
+    // 2. Fetch metadata from Filecoin
+    let filecoinMetadata = {};
+    try {
       const synapse = FilecoinService.getSynapse();
       const storage = synapse.storage;
-
-      addDebug('[Dashboard] Fetching from Filecoin...');
-
-      // 1. Get data sets
-      let dataSets = [];
-      try {
-        dataSets = await storage.findDataSets({ source: 'deadlineguard' });
-        addDebug(`[Dashboard] Data sets: ${dataSets?.length || 0}`);
-      } catch (e) {
-        addDebug(`[Dashboard] findDataSets error: ${e.message}`);
-      }
-
-      setOnChainDataSets(dataSets || []);
-
-      // 2. Extract files and calculate total size
-      const allFiles = [];
-      let totalSize = 0;
-      const now = Date.now();
-
-      for (const ds of (dataSets || [])) {
-        const dsId = ds.id || ds.clientDataSetId || ds.dataSetId;
-        const metadata = ds.metadata || {};
-
-        // Try to get pieces
-        let pieces = [];
-        try {
-          const info = await storage.getStorageInfo({ dataSetId: dsId });
-          if (info?.pieces?.length) {
-            pieces = info.pieces;
-          }
-        } catch (e) {
-          addDebug(`[Dashboard] getStorageInfo for ${String(dsId).substring(0, 20)}: ${e.message}`);
-        }
-
-        // If no pieces but metadata exists
-        if (pieces.length === 0 && Object.keys(metadata).length > 0) {
-          pieces = [{ pieceCid: metadata.pieceCid, size: metadata.size || 0 }];
-        }
-
-        for (const piece of pieces) {
-          const pieceCid = piece.pieceCid || piece.cid || metadata.pieceCid;
-          const fileSize = Number(piece.size || metadata.size || 0);
-          totalSize += fileSize;
-
-          allFiles.push({
-            id: `fc-${String(dsId).substring(0, 15)}-${String(pieceCid || '').substring(0, 10)}`,
-            file_name: metadata.fileName || `File-${String(pieceCid || dsId).substring(0, 15)}`,
-            file_size: fileSize,
-            piece_cid: pieceCid,
-            status: 'active',
-            dueDate: metadata.dueDate || null,
-            courseName: metadata.courseName || null,
-            assignmentTitle: metadata.assignmentTitle || null,
-            dataSetId: dsId,
-          });
-        }
-      }
-
-      setOnChainFiles(allFiles);
-      setTotalStorageSize(totalSize);
-      addDebug(`[Dashboard] Files: ${allFiles.length}, Size: ${(totalSize / (1024 * 1024)).toFixed(2)} MB`);
-
-      // 3. Calculate weather based on Filecoin data
-      const storageUtilization = totalSize > 0 ? Math.min(1, totalSize / (10 * 1024 * 1024 * 1024)) : 0;
+      const dataSets = await storage.findDataSets({ source: 'deadlineguard' });
       
-      const weatherResult = calculateWeather({
-        storageUtilization,
-        availableForStorage: availableForStorage || 0,
-        depositedBalance: depositedBalance || 0,
-        totalFiles: allFiles.length,
+      for (const ds of (dataSets || [])) {
+        const metadata = ds.metadata || {};
+        if (metadata.fileName) {
+          filecoinMetadata[metadata.fileName] = metadata;
+        }
+        if (metadata.pieceCid) {
+          filecoinMetadata[metadata.pieceCid] = metadata;
+        }
+      }
+      console.log('[Dashboard] Filecoin metadata:', filecoinMetadata);
+    } catch(e) {
+      console.warn('[Dashboard] Filecoin metadata fetch:', e.message);
+    }
+
+    // 3. Merge - use Filecoin metadata for due date if available
+    const now = Date.now();
+    const validFilesList = filesData
+      .filter(file => file.piece_cid)
+      .map(file => {
+        // Get metadata from Filecoin by fileName or pieceCid
+        const fcMeta = filecoinMetadata[file.file_name] || filecoinMetadata[file.piece_cid] || {};
+        
+        // Due date priority: Filecoin metadata > Supabase assignments
+        const dueDate = fcMeta.dueDate || file.assignments?.due_date || null;
+        const courseName = fcMeta.courseName || file.courses?.name || null;
+        const assignmentTitle = fcMeta.assignmentTitle || file.assignments?.title || null;
+        const gradeWeight = fcMeta.gradeWeight || file.assignments?.grade_weight || null;
+        
+        const daysUntilDue = dueDate 
+          ? Math.floor((new Date(dueDate).getTime() - now) / (1000 * 60 * 60 * 24))
+          : null;
+
+        return {
+          id: file.id,
+          file_name: file.file_name,
+          file_size: file.file_size || 0,
+          piece_cid: file.piece_cid,
+          status: file.status || 'active',
+          dueDate,
+          daysUntilDue,
+          isDueSoon: daysUntilDue !== null && daysUntilDue <= 7 && daysUntilDue >= 0,
+          isOverdue: daysUntilDue !== null && daysUntilDue < 0,
+          courseName,
+          assignmentTitle,
+          gradeWeight,
+        };
       });
 
-      setWeather(weatherResult);
+    setValidFiles(validFilesList);
+    setTotalStorageSize(validFilesList.reduce((sum, f) => sum + (f.file_size || 0), 0));
+    setDueSoonFiles(validFilesList.filter(f => f.isDueSoon));
+    setOverdueFiles(validFilesList.filter(f => f.isOverdue));
 
-    } catch (err) {
-      console.warn('[Dashboard] Fetch warning:', err.message);
-      addDebug(`[Dashboard] ERROR: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [synapseReady, availableForStorage, depositedBalance]);
+    console.log('[Dashboard] Valid files:', validFilesList.length);
+    console.log('[Dashboard] Due soon:', dueSoonFiles.length);
+    console.log('[Dashboard] Overdue:', overdueFiles.length);
+
+  } catch (err) {
+    console.warn('[Dashboard] Fetch error:', err.message);
+  } finally {
+    setLoading(false);
+  }
+}, [wallet, availableForStorage, depositedBalance]);
 
   useEffect(() => {
-    fetchFromFilecoin();
-  }, [fetchFromFilecoin]);
+    fetchValidFiles();
+  }, [fetchValidFiles]);
 
   // Auto-generate AI insight
   useEffect(() => {
-    if (!loading && onChainFiles.length > 0 && !insightGeneratedRef.current) {
+    if (!loading && validFiles.length > 0 && !insightGeneratedRef.current) {
       insightGeneratedRef.current = true;
       generateAutoInsight();
     }
-  }, [loading, onChainFiles.length, availableForStorage, weather]);
+  }, [loading, validFiles.length, availableForStorage, weather]);
 
   const generateAutoInsight = async () => {
     setAiLoading(true);
@@ -163,16 +164,16 @@ const DashboardPage = () => {
         balance: balance || 0,
         depositedBalance: depositedBalance || 0,
         availableForStorage: availableForStorage || 0,
-        lockedBalance: lockedBalance || 0,
-        totalFiles: onChainFiles.length,
+        totalFiles: validFiles.length,
         totalStorage: totalStorageSize,
         weatherState: weather?.state || 'CLEAR',
+        dueSoon: dueSoonFiles.length,
+        overdue: overdueFiles.length,
       };
 
       const report = await generateGroqReport(context, 'agent_report');
       setAiInsight(report);
     } catch (err) {
-      console.warn('[Dashboard] AI insight failed:', err.message);
       setAiInsight(null);
     } finally {
       setAiLoading(false);
@@ -185,7 +186,7 @@ const DashboardPage = () => {
       if (typeof refreshPaymentStatus === 'function') {
         await refreshPaymentStatus();
       }
-      await fetchFromFilecoin();
+      await fetchValidFiles();
       insightGeneratedRef.current = false;
     } catch (e) {
       console.warn('[Dashboard] Refresh warning:', e.message);
@@ -205,8 +206,10 @@ const DashboardPage = () => {
       const context = {
         balance: balance || 0,
         availableForStorage: availableForStorage || 0,
-        totalFiles: onChainFiles.length,
+        totalFiles: validFiles.length,
         totalStorage: totalStorageSize,
+        dueSoon: dueSoonFiles.length,
+        overdue: overdueFiles.length,
         weatherState: weather?.state || 'CLEAR',
         userQuestion: userMessage,
       };
@@ -236,6 +239,11 @@ const DashboardPage = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const formatExactDate = (dateStr) => {
+    if (!dateStr) return 'No due date';
+    return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -253,7 +261,7 @@ const DashboardPage = () => {
             <div className="flex items-center gap-3">
               <span className={`h-3 w-3 rounded-full ${connected ? 'bg-shamrock animate-pulse' : 'bg-gray-500'}`} />
               <span className="text-sm text-gray-300">
-                {connected ? 'Wallet Connected (Filecoin)' : 'Wallet Not Connected'}
+                {connected ? 'Wallet Connected' : 'Wallet Not Connected'}
               </span>
               {wallet && (
                 <span className="text-sm font-mono text-gray-400">
@@ -287,10 +295,8 @@ const DashboardPage = () => {
             </div>
             {aiInsight ? (
               <p className="text-sm text-gray-300 leading-relaxed">{aiInsight}</p>
-            ) : aiLoading ? (
-              <p className="text-sm text-gray-500">Analyzing your storage...</p>
             ) : (
-              <p className="text-sm text-gray-500">AI insight will appear once files are on-chain.</p>
+              <p className="text-sm text-gray-500">AI insight will appear once files are uploaded.</p>
             )}
           </div>
 
@@ -298,7 +304,7 @@ const DashboardPage = () => {
           <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
               <p className="text-xs text-gray-500 flex items-center gap-1">
-                <Wallet className="h-3 w-3" /> MetaMask Balance
+                <Wallet className="h-3 w-3" /> MetaMask
               </p>
               <p className="text-lg font-bold text-white">${balance?.toFixed(2) ?? '0.00'}</p>
             </div>
@@ -322,65 +328,27 @@ const DashboardPage = () => {
             </div>
           </div>
 
-          {/* Storage Stats - FROM FILECOIN */}
-          <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-4">
+          {/* Storage Stats */}
+          <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-              <p className="text-xs text-gray-500">Files (On-Chain)</p>
-              <p className="text-2xl font-bold text-white">{onChainFiles.length}</p>
+              <p className="text-xs text-gray-500">Total Files</p>
+              <p className="text-2xl font-bold text-white">{validFiles.length}</p>
             </div>
             <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-              <p className="text-xs text-gray-500">Storage Used (Filecoin)</p>
+              <p className="text-xs text-gray-500">Storage Used</p>
               <p className="text-2xl font-bold text-white">{formatBytes(totalStorageSize)}</p>
             </div>
-            <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-              <p className="text-xs text-gray-500">Data Sets</p>
-              <p className="text-2xl font-bold text-white">{onChainDataSets.length}</p>
+            <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-yellow-500/50 p-4">
+              <p className="text-xs text-yellow-500 flex items-center gap-1">
+                <Clock className="h-3 w-3" /> Due Soon
+              </p>
+              <p className="text-2xl font-bold text-yellow-400">{dueSoonFiles.length}</p>
             </div>
-          </div>
-
-          {/* Debug Log */}
-          {debugLog.length > 0 && (
-            <div className="mt-4 bg-shamrock-darker/20 rounded-lg p-3 max-h-32 overflow-y-auto">
-              {debugLog.map((msg, idx) => (
-                <p key={idx} className="text-xs font-mono text-gray-400">{msg}</p>
-              ))}
-            </div>
-          )}
-
-          {/* Chat Q&A */}
-          <div className="mt-6 bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
-              <MessageCircle className="h-5 w-5 text-shamrock" /> Ask About Your Storage
-            </h2>
-            <div className="space-y-3 mb-4 max-h-60 overflow-y-auto">
-              {chatMessages.length === 0 ? (
-                <p className="text-sm text-gray-500">Ask: "How much storage do I have left?"</p>
-              ) : (
-                chatMessages.map((msg, idx) => (
-                  <div key={idx} className={`p-3 rounded-lg ${msg.role === 'user' ? 'bg-shamrock/20 text-white ml-8' : 'bg-shamrock-darker/20 text-gray-300 mr-8'}`}>
-                    <p className="text-sm">{msg.content}</p>
-                  </div>
-                ))
-              )}
-              {chatLoading && (
-                <div className="flex items-center gap-2 text-gray-400">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Thinking...</span>
-                </div>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder="Ask about your storage..."
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-shamrock-darker rounded-md bg-white dark:bg-shamrock-darker text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-shamrock"
-              />
-              <button onClick={handleSendMessage} disabled={chatLoading || !chatInput.trim()} className="inline-flex items-center gap-2 rounded-md bg-shamrock px-4 py-2 text-sm font-semibold text-white hover:bg-shamrock-dark transition-colors disabled:opacity-50">
-                <Send size={16} /> Send
-              </button>
+            <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-red-500/50 p-4">
+              <p className="text-xs text-red-500 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" /> Overdue
+              </p>
+              <p className="text-2xl font-bold text-red-400">{overdueFiles.length}</p>
             </div>
           </div>
 
@@ -392,19 +360,19 @@ const DashboardPage = () => {
             />
           </div>
 
-          {/* Uploaded Files - FROM FILECOIN */}
+          {/* Files Table */}
           <div className="mt-8 bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker overflow-hidden">
             <div className="p-4 border-b border-gray-200 dark:border-shamrock-darker">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                <Cloud className="h-5 w-5 text-shamrock" /> Files on Filecoin
+                <Cloud className="h-5 w-5 text-shamrock" /> Your Files
               </h2>
             </div>
-            {onChainFiles.length === 0 ? (
+            {validFiles.length === 0 ? (
               <div className="p-8 text-center">
                 <FileText className="h-12 w-12 text-gray-500 mx-auto mb-3" />
-                <p className="text-gray-400">No files found on Filecoin.</p>
+                <p className="text-gray-400">No files found.</p>
                 <Link to="/dashboard/upload" className="inline-block mt-3 text-shamrock hover:underline">
-                  Upload your first file →
+                  Upload a file →
                 </Link>
               </div>
             ) : (
@@ -413,25 +381,48 @@ const DashboardPage = () => {
                   <thead>
                     <tr className="border-b border-gray-200 dark:border-shamrock-darker">
                       <th className="px-4 py-3 text-sm text-gray-500">File</th>
+                      <th className="px-4 py-3 text-sm text-gray-500">Due Date</th>
+                      <th className="px-4 py-3 text-sm text-gray-500">Status</th>
                       <th className="px-4 py-3 text-sm text-gray-500">Size</th>
                       <th className="px-4 py-3 text-sm text-gray-500">PieceCID</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {onChainFiles.map((file) => (
+                    {validFiles.map((file) => (
                       <tr key={file.id} className="border-b border-gray-200 dark:border-shamrock-darker hover:bg-gray-50 dark:hover:bg-shamrock-darker/20">
                         <td className="px-4 py-3">
                           <span className="text-shamrock font-medium">{file.file_name}</span>
                         </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1 text-sm ${
+                            file.isOverdue ? 'text-red-400' : file.isDueSoon ? 'text-yellow-400' : 'text-gray-300'
+                          }`}>
+                            <Calendar className="h-3 w-3" />
+                            {formatExactDate(file.dueDate)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {file.isOverdue ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400">
+                              <AlertTriangle className="h-3 w-3" /> OVERDUE ({Math.abs(file.daysUntilDue)} days)
+                            </span>
+                          ) : file.isDueSoon ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-400">
+                              <Clock className="h-3 w-3" /> DUE SOON ({file.daysUntilDue} days)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 rounded-full text-xs bg-green-500/20 text-green-400">
+                              OK ({file.daysUntilDue} days)
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{formatBytes(file.file_size)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono text-gray-500">{String(file.piece_cid || '—').slice(0, 20)}...</span>
-                            {file.piece_cid && (
-                              <button onClick={() => copyCid(file.piece_cid)} className="text-gray-400 hover:text-shamrock">
-                                {copiedCid === String(file.piece_cid) ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                              </button>
-                            )}
+                            <span className="text-xs font-mono text-gray-500">{String(file.piece_cid).slice(0, 20)}...</span>
+                            <button onClick={() => copyCid(file.piece_cid)} className="text-gray-400 hover:text-shamrock">
+                              {copiedCid === String(file.piece_cid) ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                            </button>
                           </div>
                         </td>
                       </tr>

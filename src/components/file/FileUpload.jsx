@@ -16,6 +16,7 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
   const [progress, setProgress] = useState(0);
   const [uploadLog, setUploadLog] = useState([]);
   const inputRef = useRef(null);
+  const { isFunded } = useFilecoin();
 
   const addLog = (message) => {
     console.log(message);
@@ -64,18 +65,15 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
 
       // Step 1: Upload to Filecoin
       const result = await FilecoinService.uploadFile(file, {
-        onProgress: (percent) => {
-          setProgress(percent);
-          if (percent % 25 === 0) addLog(`[Upload] Progress: ${Math.round(percent)}%`);
-        },
+        onProgress: (percent) => setProgress(percent),
         fileName: file.name,
         courseName: academicMeta.courseName,
         assignmentTitle: academicMeta.assignmentTitle,
         dueDate: academicMeta.dueDate,
         gradeWeight: academicMeta.gradeWeight,
-        walletAddress: wallet, // Store wallet on Filecoin metadata
+        walletAddress: wallet,
+        skipPrepare: isFunded,  // ← Pass funding status
       });
-
       const cid = typeof result?.pieceCid === 'string' 
         ? result.pieceCid 
         : String(result?.pieceCid || 'unknown');
