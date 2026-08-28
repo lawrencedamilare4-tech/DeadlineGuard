@@ -11,14 +11,10 @@ export const SupabaseProvider = ({ children }) => {
   useEffect(() => {
     const init = async () => {
       try {
-        // Check session first
+        // Check session first (faster)
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           setUser(session.user);
-        } else {
-          // Try getUser as fallback
-          const currentUser = await getCurrentUser();
-          setUser(currentUser);
         }
       } catch (error) {
         console.error('Failed to get session', error);
@@ -28,13 +24,16 @@ export const SupabaseProvider = ({ children }) => {
     };
     init();
 
-    const { data: subscription } = onAuthStateChange((user) => {
-      console.log('[Supabase] Auth state changed:', user?.id || 'null');
-      setUser(user);
+    // Listen for auth changes
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('[Supabase] Auth event:', event, 'User:', session?.user?.id);
+      setUser(session?.user || null);
       setLoading(false);
     });
 
-    return () => subscription?.subscription?.unsubscribe();
+    return () => {
+      subscription?.subscription?.unsubscribe();
+    };
   }, []);
 
   const value = { supabase, user, loading };

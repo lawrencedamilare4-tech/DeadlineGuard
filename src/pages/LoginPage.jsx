@@ -28,70 +28,41 @@ const LoginPage = () => {
     }
   }, [user, navigate]);
 
-  const handleWalletLogin = async () => {
-    setLoading(true);
-    setError(null);
-    setDebugLog([]);
-    navigationAttempted.current = false;
+const handleWalletLogin = async () => {
+  setLoading(true);
+  setError(null);
+
+  try {
+    const walletAddress = await connectWallet();
     
-    try {
-      addLog('[Login] Step 1: Connecting wallet...');
-      
-      // Check if MetaMask exists
-      if (!window.ethereum) {
-        throw new Error('MetaMask not found. Please install MetaMask.');
-      }
-      addLog('[Login] MetaMask detected');
-      
-      // Connect wallet
-      const walletAddress = await connectWallet();
-      addLog(`[Login] Wallet connected: ${walletAddress}`);
-      
-      if (!walletAddress) {
-        throw new Error('Wallet connection returned no address');
-      }
-
-      addLog('[Login] Step 2: Creating Supabase session...');
-      
-      // Create/get Supabase session
-      const { user: authUser, session } = await signInWithWallet(walletAddress);
-      addLog(`[Login] Auth user: ${authUser?.id || 'none'}`);
-      
-      // Store profile
-      try {
-        await supabase.from('profiles').upsert(
-          {
-            id: authUser?.id,
-            wallet_address: walletAddress,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'id' }
-        );
-        addLog('[Login] Profile saved');
-      } catch (profileErr) {
-        addLog(`[Login] Profile save warning: ${profileErr.message}`);
-      }
-
-      addLog('[Login] Step 3: Navigating to dashboard...');
-      
-      // Force auth state refresh
-      await supabase.auth.getSession();
-      
-      // Navigate
-      setTimeout(() => {
-        addLog('[Login] Navigating now');
-        navigate('/dashboard/overview', { replace: true });
-      }, 500);
-      
-    } catch (err) {
-      console.error('[Login] Full error:', err);
-      addLog(`[Login] ERROR: ${err.message}`);
-      addLog(`[Login] Stack: ${err.stack?.substring(0, 200)}`);
-      setError(err.message || 'Failed to sign in');
-      setLoading(false);
+    // Sign in / get session
+    const { user: authUser } = await signInWithWallet(walletAddress);
+    
+    if (authUser) {
+      await supabase.from('profiles').upsert({
+        id: authUser.id,
+        wallet_address: walletAddress,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
     }
-  };
 
+    // FORCE auth state update
+    await supabase.auth.setSession({
+      access_token: (await supabase.auth.getSession()).data.session?.access_token,
+      refresh_token: (await supabase.auth.getSession()).data.session?.refresh_token,
+    });
+
+    // Wait longer for state propagation
+    setTimeout(() => {
+      navigate('/dashboard/overview', { replace: true });
+    }, 1000);
+
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+};
   return (
     <div className="min-h-screen flex items-center justify-center bg-shamrock-darkest px-4">
       <div className="bg-white dark:bg-shamrock-darkest rounded-lg shadow-xl p-8 max-w-md w-full text-center">

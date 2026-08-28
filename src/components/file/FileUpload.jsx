@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, CheckCircle, AlertCircle, Loader2, Wallet } from 'lucide-react';
+import { Upload, CheckCircle, AlertCircle, Loader2, Wallet, AlertTriangle } from 'lucide-react';
 import { FilecoinService } from '../../services/filecoin';
 import { useSupabase } from '../../hooks/useSupabase';
 import { useFilecoin } from '../../contexts/FilecoinContext';
@@ -7,7 +7,7 @@ import { supabase } from '../../services/supabase/client';
 
 const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }) => {
   const { user, loading: authLoading } = useSupabase();
-  const { connected = false, synapseReady = false, wallet, refreshPaymentStatus } = useFilecoin() || {};
+  const { connected = false, synapseReady = false, wallet, refreshPaymentStatus, availableForStorage } = useFilecoin() || {};
   
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState('idle');
@@ -60,20 +60,20 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
       addLog(`[Upload] Course: ${academicMeta.courseName}`);
       addLog(`[Upload] Assignment: ${academicMeta.assignmentTitle}`);
       addLog(`[Upload] Due: ${academicMeta.dueDate}`);
-      addLog(`[Upload] Grade Weight: ${academicMeta.gradeWeight}%`);
+      addLog(`[Upload] Wallet: ${wallet?.slice(0, 10)}...`);
 
-      // Upload to Filecoin WITH FULL METADATA
+      // Step 1: Upload to Filecoin
       const result = await FilecoinService.uploadFile(file, {
         onProgress: (percent) => {
           setProgress(percent);
           if (percent % 25 === 0) addLog(`[Upload] Progress: ${Math.round(percent)}%`);
         },
-        // Pass academic metadata to store on Filecoin
         fileName: file.name,
         courseName: academicMeta.courseName,
         assignmentTitle: academicMeta.assignmentTitle,
         dueDate: academicMeta.dueDate,
         gradeWeight: academicMeta.gradeWeight,
+        walletAddress: wallet, // Store wallet on Filecoin metadata
       });
 
       const cid = typeof result?.pieceCid === 'string' 
@@ -82,104 +82,78 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
 
       setPieceCid(cid);
       addLog(`[Upload] PieceCID: ${cid}`);
-      addLog(`[Upload] Metadata stored on Filecoin: fileName, courseName, assignmentTitle, dueDate, gradeWeight`);
+      addLog(`[Upload] File stored on Filecoin ✓`);
       setStatus('storing');
 
-      // Create course in Supabase (for reference)
-      let courseId = null;
+      // Step 2: Save PieceCID + wallet_address to Supabase (index)
       try {
-        const { data: existingCourse } = await supabase
-          .from('courses')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('name', academicMeta.courseName)
-          .maybeSingle();
-
-        if (existingCourse) {
-          courseId = existingCourse.id;
-        } else {
-          const { data: newCourse } = await supabase
-            .from('courses')
-            .insert({
-              user_id: user.id,
-              name: academicMeta.courseName,
-              semester: new Date().getFullYear().toString(),
-            })
-            .select()
-            .single();
-          if (newCourse) courseId = newCourse.id;
-        }
-      } catch (e) {
-        addLog(`[Upload] Course warning: ${e.message}`);
-      }
-
-      // Create assignment in Supabase
-      let assignmentId = null;
-      try {
-        const { data: assignment } = await supabase
-          .from('assignments')
-          .insert({
-            user_id: user.id,
-            course_id: courseId,
-            title: academicMeta.assignmentTitle,
-            due_date: academicMeta.dueDate,
-            grade_weight: academicMeta.gradeWeight,
-            status: 'pending',
-          })
-          .select()
-          .single();
-        if (assignment) assignmentId = assignment.id;
-      } catch (e) {
-        addLog(`[Upload] Assignment warning: ${e.message}`);
-      }
-
-      // Calculate scores
-      const now = Date.now();
-      const due = new Date(academicMeta.dueDate).getTime();
-      const daysUntilDue = Math.max(0, (due - now) / (1000 * 60 * 60 * 24));
-      const priorityScore = Math.min(1, 
-        ((daysUntilDue <= 7 ? 1 : daysUntilDue <= 14 ? 0.7 : daysUntilDue <= 30 ? 0.4 : 0.2) + 
-         (academicMeta.gradeWeight / 100)) / 2
-      );
-      const urgencyScore = daysUntilDue <= 3 ? 1 : daysUntilDue <= 7 ? 0.8 : daysUntilDue <= 14 ? 0.5 : daysUntilDue <= 30 ? 0.3 : 0.1;
-
-      // Save file metadata to Supabase (as backup index)
-      try {
-        const { data: insertedFile } = await supabase
+        const { data: insertedFile, error: insertError } = await supabase
           .from('files')
           .insert({
-            user_id: user.id,
-            course_id: courseId,
-            assignment_id: assignmentId,
+            user_id: user?.id || null,
+            wallet_address: wallet, // ← Permanent identifier
             file_name: file.name,
             file_type: file.type || 'application/octet-stream',
             file_size: file.size,
-            piece_cid: cid,
+            piece_cid: cid, // ← Saved for Filecoin download
             status: 'active',
             temperature: 'warm',
-            priority_score: priorityScore,
-            urgency_score: urgencyScore,
+            course_name: academicMeta.courseName || null,
+            assignment_title: academicMeta.assignmentTitle || null,
+            due_date: academicMeta.dueDate || null,
+            grade_weight: academicMeta.gradeWeight || null,
             last_modified: new Date().toISOString(),
             last_accessed: new Date().toISOString(),
           })
           .select()
           .single();
-        addLog(`[Upload] Supabase backup saved: ${insertedFile?.id}`);
+
+        if (insertError) {
+          console.error('[Upload] Supabase insert error:', insertError.message);
+          addLog(`[Upload] Supabase error: ${insertError.message}`);
+        } else {
+          console.log('[Upload] Supabase saved with wallet:', wallet);
+          addLog(`[Upload] Supabase saved: ${insertedFile?.id}`);
+        }
       } catch (e) {
-        addLog(`[Upload] Supabase error (non-fatal): ${e.message}`);
+        console.error('[Upload] Supabase exception:', e.message);
+        addLog(`[Upload] Supabase exception: ${e.message}`);
       }
 
+      // Refresh balance
       if (typeof refreshPaymentStatus === 'function') {
         await refreshPaymentStatus();
         addLog('[Upload] Balance refreshed');
       }
 
       setStatus('done');
-      addLog('[Upload] COMPLETE! File stored on Filecoin with full metadata.');
+      addLog('[Upload] COMPLETE!');
       if (onUploadComplete) onUploadComplete({ pieceCid: cid });
     } catch (err) {
-      addLog(`[Upload] ERROR: ${err.message}`);
-      setError(err.message || 'Upload failed');
+      console.error('[Upload] Failed:', err);
+      
+      const errorMessage = err.message || '';
+      
+      if (errorMessage.includes('InsufficientLockupFunds')) {
+        const requiredMatch = errorMessage.match(/\([^,]+,\s*(\d+),\s*(\d+)/);
+        let requiredUSDFC = 0.124;
+        let availableUSDFC = availableForStorage || 0;
+        
+        if (requiredMatch) {
+          requiredUSDFC = parseFloat(requiredMatch[1]) / 1e18;
+          availableUSDFC = parseFloat(requiredMatch[2]) / 1e18;
+        }
+
+        setError(`Insufficient funds. This upload requires ${requiredUSDFC.toFixed(3)} USDFC but you only have ${availableUSDFC.toFixed(4)} USDFC deposited.`);
+        addLog(`[Upload] INSUFFICIENT FUNDS: Need ${requiredUSDFC.toFixed(3)}, have ${availableUSDFC.toFixed(4)}`);
+      } else if (errorMessage.includes('Insufficient balance')) {
+        setError('Insufficient balance. Fund your wallet with USDFC in Settings.');
+      } else if (errorMessage.includes('user rejected')) {
+        setError('Transaction rejected in MetaMask.');
+      } else {
+        setError(errorMessage || 'Upload failed');
+      }
+      
       setStatus('error');
     }
   };
@@ -198,7 +172,22 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
         ) : (
           <span className="text-red-500">Not connected</span>
         )}
+        {availableForStorage !== undefined && (
+          <span className="text-xs text-gray-500 ml-2">
+            Available: ${availableForStorage?.toFixed(4) ?? '0.0000'} USDFC
+          </span>
+        )}
       </div>
+
+      {/* Low balance warning */}
+      {connected && availableForStorage !== undefined && availableForStorage < 0.13 && (
+        <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-md">
+          <p className="text-sm text-yellow-400 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4" />
+            Low balance: Need 0.124 USDFC. You have {availableForStorage.toFixed(4)} USDFC.
+          </p>
+        </div>
+      )}
 
       {/* File selection */}
       <div
@@ -222,13 +211,6 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
           </p>
         )}
       </div>
-
-      {/* Validation Message */}
-      {!allFieldsFilled && (
-        <p className="mt-3 text-xs text-yellow-500">
-          ⚠️ Fill all academic fields, select a file, and connect wallet to enable upload.
-        </p>
-      )}
 
       {/* Upload button */}
       {file && (
@@ -269,7 +251,7 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
         <div className="mt-4 space-y-2">
           <div className="flex items-center text-green-600 dark:text-green-400">
             <CheckCircle className="h-5 w-5 mr-2" />
-            <span>Stored on Filecoin with Metadata</span>
+            <span>Stored on Filecoin</span>
           </div>
           <p className="text-sm font-mono text-gray-600 dark:text-gray-300">
             PieceCID: {String(pieceCid || 'unknown').slice(0, 40)}
@@ -279,9 +261,9 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
 
       {/* Error */}
       {status === 'error' && (
-        <div className="mt-4 flex items-start text-red-600 dark:text-red-400">
+        <div className="mt-4 flex items-start text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-md">
           <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
-          <span>{error}</span>
+          <span className="text-sm">{error}</span>
         </div>
       )}
     </div>

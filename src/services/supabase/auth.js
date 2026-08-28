@@ -73,3 +73,4 @@ export async function signInWithWallet(walletAddress) {
   if (signUpError) throw signUpError;
   return signUpData;
 }
+
