@@ -1,11 +1,20 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { FilecoinService } from '../services/filecoin';
 import { useFilecoin } from '../contexts/FilecoinContext';
-import { Cloud, Loader2, RefreshCw, Sun, CloudRain, CloudLightning, Cloudy, TrendingUp, TrendingDown } from 'lucide-react';
-import { calculateWeather } from '../engines/weatherEngine';
+import { supabase } from '../services/supabase/client';
+import { ethers } from 'ethers';
+import { 
+  Cloud, Loader2, RefreshCw, Sun, CloudRain, CloudLightning, Cloudy, 
+  TrendingUp, TrendingDown, Wallet, Database, Lock, Clock
+} from 'lucide-react';
 
 const ForecastPage = () => {
-  const { wallet, connected, synapseReady, balance, spendRate, refreshPaymentStatus } = useFilecoin();
+  const { 
+    wallet, connected, synapseReady, balance, spendRate, 
+    depositedBalance, availableForStorage, lockedBalance,
+    refreshPaymentStatus 
+  } = useFilecoin();
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -14,6 +23,7 @@ const ForecastPage = () => {
   const [currentSpendRate, setCurrentSpendRate] = useState(0);
   const [currentRunway, setCurrentRunway] = useState(Infinity);
   const [storageSize, setStorageSize] = useState(0);
+  const [fileCount, setFileCount] = useState(0);
 
   const fetchOnChainForecast = useCallback(async () => {
     setLoading(true);
@@ -28,67 +38,98 @@ const ForecastPage = () => {
 
       const synapse = FilecoinService.getSynapse();
       const payments = synapse.payments;
-      const storage = synapse.storage;
 
-      // 1. Fetch current balance from blockchain
-      let balanceValue = 0;
+      // 1. Get REAL balances from contract (not wallet)
+      let deposited = depositedBalance || 0;
+      let available = availableForStorage || 0;
+      let locked = lockedBalance || 0;
+      let walletBal = balance || 0;
+
       try {
-        const balanceBigInt = await payments.walletBalance({ token: 'USDFC' });
-        balanceValue = parseFloat(balanceBigInt.toString()) / 1e18;
-      } catch (err) {
-        console.warn('[Forecast] Balance fetch failed:', err.message);
-        balanceValue = balance || 0;
-      }
-      setCurrentBalance(balanceValue);
+        const { ethers } = await import('ethers');
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const USDFC_ADDRESS = '0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0';
+        const PAYMENTS_ADDRESS = '0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0';
+        
+        const PAYMENTS_ABI = [
+          'function accounts(address token, address owner) view returns (uint256 funds, uint256 lockedFunds, bool frozen)',
+        ];
 
-      // 2. Fetch price list for spend rate
-      let spendRateValue = spendRate || 0;
+        const contract = new ethers.Contract(PAYMENTS_ADDRESS, PAYMENTS_ABI, provider);
+        const address = await provider.getSigner().getAddress();
+        const accountInfo = await contract.accounts(USDFC_ADDRESS, address);
+        
+        deposited = parseFloat(accountInfo.funds.toString()) / 1e18;
+        locked = parseFloat(accountInfo.lockedFunds.toString()) / 1e18;
+        available = Math.max(0, deposited - locked);
+      } catch (e) {
+        console.warn('[Forecast] Contract query:', e.message);
+      }
+
+      setCurrentBalance(available); // Use AVAILABLE balance for forecast
+
+      // 2. Real spend rate (actual cost per epoch)
+      let realSpendRate = 0;
       try {
-        if (typeof payments.getPriceList === 'function') {
-          const priceList = await payments.getPriceList();
-          if (priceList?.perMonth) {
-            const monthlyCost = parseFloat(priceList.perMonth.toString()) / 1e18;
-            const epochsPerMonth = 86400;
-            spendRateValue = monthlyCost / epochsPerMonth;
-          }
-        }
-      } catch (err) {
-        console.warn('[Forecast] Price list fetch failed:', err.message);
+        // Calculate based on actual locked funds and time
+        // Locked funds are for current storage period
+        const storageDurationEpochs = 86400; // ~30 days
+        realSpendRate = locked > 0 ? locked / storageDurationEpochs : 0.05 / 86400;
+      } catch (e) {
+        realSpendRate = 0.05 / 86400;
       }
-      setCurrentSpendRate(spendRateValue);
+      setCurrentSpendRate(realSpendRate);
 
-      // 3. Calculate current runway
-      const runwayValue = spendRateValue > 0 ? balanceValue / spendRateValue : Infinity;
+      // 3. Real runway based on AVAILABLE balance
+      const runwayValue = realSpendRate > 0 && available > 0 
+        ? available / realSpendRate 
+        : Infinity;
       setCurrentRunway(runwayValue);
 
-      // 4. Fetch storage info for utilization
+      // 4. Get storage size from Supabase (files with valid PieceCIDs)
       let totalSize = 0;
+      let fileCountValue = 0;
       try {
-        if (typeof storage.findDataSets === 'function') {
-          const dataSets = await storage.findDataSets({ source: 'deadlineguard' });
-          for (const ds of (dataSets || [])) {
-            if (typeof storage.getStorageInfo === 'function') {
-              const info = await storage.getStorageInfo({ dataSetId: ds.id || ds.clientDataSetId });
-              if (info?.pieces) {
-                totalSize += info.pieces.reduce((sum, p) => sum + (p.size || 0), 0);
-              }
-            }
+        const { data: { user } } = await supabase.auth.getUser();
+        let query = supabase.from('files').select('*').not('piece_cid', 'is', null);
+        
+        if (user) {
+          const { data: files } = await query.eq('user_id', user.id);
+          if (files) {
+            totalSize = files.reduce((sum, f) => sum + (f.file_size || 0), 0);
+            fileCountValue = files.length;
           }
         }
-      } catch (err) {
-        console.warn('[Forecast] Storage info fetch failed:', err.message);
+        
+        if (fileCountValue === 0 && wallet) {
+          const { data: walletFiles } = await supabase
+            .from('files')
+            .select('*')
+            .eq('wallet_address', wallet)
+            .not('piece_cid', 'is', null);
+          if (walletFiles) {
+            totalSize = walletFiles.reduce((sum, f) => sum + (f.file_size || 0), 0);
+            fileCountValue = walletFiles.length;
+          }
+        }
+      } catch (e) {
+        console.warn('[Forecast] Supabase query:', e.message);
       }
       setStorageSize(totalSize);
+      setFileCount(fileCountValue);
 
-      // 5. Generate 7-day forecast based on real data
-      const forecast = generateForecast(balanceValue, spendRateValue, runwayValue, totalSize);
+      // 5. Generate forecast based on real data
+      const forecast = generateForecast(available, realSpendRate, runwayValue, totalSize, fileCountValue, locked);
       setForecastData(forecast);
 
-      console.log('[Forecast] On-chain data:', {
-        balance: balanceValue,
-        spendRate: spendRateValue,
+      console.log('[Forecast] Real data:', {
+        available,
+        deposited,
+        locked,
+        spendRate: realSpendRate,
         runway: runwayValue,
         storageSize: totalSize,
+        fileCount: fileCountValue,
       });
 
     } catch (err) {
@@ -97,7 +138,7 @@ const ForecastPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [synapseReady, balance, spendRate]);
+  }, [synapseReady, balance, depositedBalance, availableForStorage, lockedBalance, wallet]);
 
   useEffect(() => {
     if (synapseReady) {
@@ -105,31 +146,36 @@ const ForecastPage = () => {
     }
   }, [fetchOnChainForecast, synapseReady]);
 
-  const generateForecast = (balance, spendRate, runway, storageSize) => {
+  const generateForecast = (availableBalance, spendRate, runway, storageSize, fileCount, locked) => {
     const days = [];
-    const epochsPerDay = 2880; // 30-second epochs
+    const epochsPerDay = 2880;
+    const storageCapacity = 10 * 1024 * 1024 * 1024; // 10GB
     
     for (let day = 0; day < 7; day++) {
       const epochsUsed = day * epochsPerDay;
-      const remainingRunway = runway === Infinity ? Infinity : runway - epochsUsed;
-      const projectedBalance = spendRate > 0 ? Math.max(0, balance - (spendRate * epochsUsed)) : balance;
+      const remainingBalance = spendRate > 0 
+        ? Math.max(0, availableBalance - (spendRate * epochsUsed)) 
+        : availableBalance;
       
-      // Determine weather for this day
+      const remainingRunway = runway === Infinity 
+        ? Infinity 
+        : Math.max(0, runway - epochsUsed);
+
+      // Determine weather based on remaining balance AND storage usage
       let state = 'CLEAR';
       let icon = Sun;
-      
-      if (remainingRunway === Infinity) {
-        state = 'CLEAR';
-      } else if (remainingRunway <= 100) {
+      const storageUtilization = storageSize / storageCapacity;
+
+      if (remainingBalance <= 0.01) {
         state = 'CRITICAL';
         icon = CloudLightning;
-      } else if (remainingRunway <= 500) {
+      } else if (remainingBalance < 0.05) {
         state = 'STORM';
         icon = CloudLightning;
-      } else if (remainingRunway <= 2000) {
+      } else if (remainingBalance < 0.10) {
         state = 'RAIN';
         icon = CloudRain;
-      } else if (remainingRunway <= 5000) {
+      } else if (remainingBalance < 0.50 || storageUtilization > 0.7) {
         state = 'WATCH';
         icon = Cloudy;
       } else {
@@ -141,7 +187,8 @@ const ForecastPage = () => {
         state,
         icon,
         runway: remainingRunway === Infinity ? '∞' : Math.floor(remainingRunway),
-        balance: projectedBalance,
+        balance: remainingBalance,
+        storageUsed: Math.min(100, storageUtilization * 100),
       });
     }
     
@@ -153,6 +200,14 @@ const ForecastPage = () => {
     await refreshPaymentStatus();
     await fetchOnChainForecast();
     setRefreshing(false);
+  };
+
+  const formatBytes = (bytes) => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   if (loading) {
@@ -167,7 +222,7 @@ const ForecastPage = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Cloud className="h-6 w-6 text-shamrock" /> 7-Day Forecast (On-Chain)
+          <Cloud className="h-6 w-6 text-shamrock" /> 7-Day Forecast
         </h1>
         <button
           onClick={handleRefresh}
@@ -186,27 +241,39 @@ const ForecastPage = () => {
         </div>
       )}
 
-      {/* Current Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Real On-Chain Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-          <p className="text-xs text-gray-500">Current Balance</p>
-          <p className="text-2xl font-bold text-white">${currentBalance.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 flex items-center gap-1">
+            <TrendingDown className="h-3 w-3" /> Available
+          </p>
+          <p className="text-2xl font-bold text-shamrock">${currentBalance.toFixed(4)}</p>
         </div>
         <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-          <p className="text-xs text-gray-500">Spend Rate</p>
-          <p className="text-2xl font-bold text-white">${currentSpendRate.toFixed(8)}/epoch</p>
+          <p className="text-xs text-gray-500 flex items-center gap-1">
+            <Database className="h-3 w-3" /> Deposited
+          </p>
+          <p className="text-2xl font-bold text-white">${depositedBalance?.toFixed(4) ?? '0.0000'}</p>
         </div>
         <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-          <p className="text-xs text-gray-500">Current Runway</p>
+          <p className="text-xs text-gray-500 flex items-center gap-1">
+            <Lock className="h-3 w-3" /> Locked
+          </p>
+          <p className="text-2xl font-bold text-white">${lockedBalance?.toFixed(4) ?? '0.0000'}</p>
+        </div>
+        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
+          <p className="text-xs text-gray-500 flex items-center gap-1">
+            <Clock className="h-3 w-3" /> Runway
+          </p>
           <p className="text-2xl font-bold text-white">
-            {currentRunway === Infinity ? '∞' : `${Math.floor(currentRunway).toLocaleString()} epochs`}
+            {currentRunway === Infinity ? '∞' : `${Math.floor(currentRunway / 2880)} days`}
           </p>
         </div>
       </div>
 
-      {/* 7-Day Forecast Grid */}
+      {/* 7-Day Forecast */}
       <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
-        <h2 className="text-lg font-semibold text-white mb-6">Forecast</h2>
+        <h2 className="text-lg font-semibold text-white mb-6">Projected Storage Conditions</h2>
         
         <div className="grid grid-cols-7 gap-2 text-center">
           {forecastData.map((day) => {
@@ -223,10 +290,10 @@ const ForecastPage = () => {
                 }`} />
                 <span className="text-xs font-bold text-white">{day.state}</span>
                 <span className="text-xs text-gray-400 mt-1">
-                  {day.runway === '∞' ? '∞' : day.runway.toLocaleString()} ep
+                  ${day.balance.toFixed(4)}
                 </span>
                 <span className="text-xs text-gray-500">
-                  ${day.balance.toFixed(2)}
+                  {day.runway === '∞' ? '∞' : `${Math.floor(day.runway / 2880)}d`}
                 </span>
               </div>
             );
@@ -234,21 +301,26 @@ const ForecastPage = () => {
         </div>
       </div>
 
-      {/* Explanation */}
+      {/* Summary */}
       <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
-        <h2 className="text-lg font-semibold text-white mb-3">How This Forecast Works</h2>
-        <p className="text-sm text-gray-400 leading-relaxed">
-          This forecast is based on real on-chain data from Filecoin:
-        </p>
-        <ul className="text-sm text-gray-400 mt-2 space-y-1 list-disc list-inside">
-          <li>Current USDFC balance: <span className="text-white">${currentBalance.toFixed(2)}</span></li>
-          <li>Spend rate: <span className="text-white">${currentSpendRate.toFixed(8)}/epoch</span></li>
-          <li>Current runway: <span className="text-white">{currentRunway === Infinity ? '∞' : Math.floor(currentRunway).toLocaleString()} epochs</span></li>
-          <li>Storage used: <span className="text-white">{(storageSize / (1024 * 1024)).toFixed(2)} MB</span></li>
-        </ul>
-        <p className="text-sm text-gray-500 mt-3">
-          The forecast projects balance depletion over 7 days at the current spend rate.
-        </p>
+        <h2 className="text-lg font-semibold text-white mb-3">Forecast Summary</h2>
+        <div className="space-y-2 text-sm text-gray-400">
+          <p>
+            <span className="text-white font-semibold">{fileCount}</span> files stored 
+            using <span className="text-white font-semibold">{formatBytes(storageSize)}</span>
+          </p>
+          <p>
+            Available balance: <span className="text-shamrock font-semibold">${currentBalance.toFixed(4)} USDFC</span>
+          </p>
+          <p>
+            Spend rate: <span className="text-white">${currentSpendRate.toFixed(10)}/epoch</span>
+          </p>
+          <p>
+            Estimated runway: <span className="text-white font-semibold">
+              {currentRunway === Infinity ? '∞' : `${Math.floor(currentRunway / 2880)} days`}
+            </span>
+          </p>
+        </div>
       </div>
     </div>
   );

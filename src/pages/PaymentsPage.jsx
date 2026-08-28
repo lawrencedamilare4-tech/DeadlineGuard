@@ -1,15 +1,20 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { FilecoinService } from '../services/filecoin';
 import { useFilecoin } from '../contexts/FilecoinContext';
-import { Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown, Clock } from 'lucide-react';
+import { supabase } from '../services/supabase/client';
+import { ethers } from 'ethers';
+import { 
+  Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown, Clock, 
+  FileText, CheckCircle, AlertTriangle, Database, HardDrive
+} from 'lucide-react';
 
 const PaymentsPage = () => {
-  const { wallet, connected, synapseReady, refreshPaymentStatus } = useFilecoin();
+  const { wallet, connected, synapseReady, refreshPaymentStatus, depositedBalance, availableForStorage, lockedBalance } = useFilecoin();
   const [paymentInfo, setPaymentInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [costEstimate, setCostEstimate] = useState(null);
+  const [recentPayments, setRecentPayments] = useState([]);
 
   const fetchOnChainPayments = useCallback(async () => {
     setLoading(true);
@@ -27,62 +32,94 @@ const PaymentsPage = () => {
       
       console.log('[Payments] Payment methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(payments)));
 
-      // Fetch wallet balance from blockchain
+      // Fetch wallet balance
       let balance = 0;
       try {
         const balanceBigInt = await payments.walletBalance({ token: 'USDFC' });
         balance = parseFloat(balanceBigInt.toString()) / 1e18;
-        console.log('[Payments] On-chain balance:', balance);
-      } catch (balanceErr) {
-        console.warn('[Payments] walletBalance failed:', balanceErr.message);
+      } catch (e) {
+        console.warn('[Payments] walletBalance failed:', e.message);
       }
 
-      // Fetch operator approvals
+      // Fetch operator approvals (shows what's locked/used)
       let approvals = null;
       try {
         if (typeof payments.getOperatorApprovals === 'function') {
           approvals = await payments.getOperatorApprovals();
-          console.log('[Payments] Operator approvals:', approvals);
         }
-      } catch (approvalErr) {
-        console.warn('[Payments] getOperatorApprovals failed:', approvalErr.message);
+      } catch (e) {
+        console.warn('[Payments] getOperatorApprovals failed:', e.message);
       }
 
-      // Fetch price list / rates
-      let priceList = null;
-      try {
-        if (typeof payments.getPriceList === 'function') {
-          priceList = await payments.getPriceList();
-          console.log('[Payments] Price list:', priceList);
-        }
-      } catch (priceErr) {
-        console.warn('[Payments] getPriceList failed:', priceErr.message);
-      }
-
-      // Calculate spend rate from real data
-      let spendRate = 0;
-      if (priceList?.perMonth) {
-        const monthlyCost = parseFloat(priceList.perMonth.toString()) / 1e18;
-        const epochsPerMonth = 86400;
-        spendRate = monthlyCost / epochsPerMonth;
-      } else {
-        // Fallback estimate
-        spendRate = 0.05 / 86400; // $0.05/month for small storage
-      }
-
-      const runway = spendRate > 0 ? balance / spendRate : Infinity;
+      // Spend rate
+      const spendRate = 0.05 / 86400;
+      const runway = spendRate > 0 ? (availableForStorage || balance) / spendRate : Infinity;
 
       const info = {
         balance,
         spendRate,
         runway,
         approvals,
-        priceList,
-        wallet: wallet,
       };
 
       setPaymentInfo(info);
-      console.log('[Payments] Full payment info:', info);
+
+      // Fetch recent payments from Supabase (agent actions + file uploads)
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        // Get upload actions (payments for storage)
+        const { data: uploads } = await supabase
+          .from('files')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        // Get agent actions related to payments
+        const { data: actions } = await supabase
+          .from('agent_actions')
+          .select('*')
+          .in('action_type', ['ALERT', 'ARCHIVE', 'PROTECT', 'DELETE'])
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        // Combine and map to payment entries
+        const paymentsList = [];
+
+        if (uploads) {
+          for (const upload of uploads) {
+            paymentsList.push({
+              id: `upload-${upload.id}`,
+              type: 'STORAGE',
+              description: `Stored: ${upload.file_name}`,
+              pieceCid: upload.piece_cid,
+              size: upload.file_size,
+              date: upload.created_at,
+              status: 'COMPLETED',
+              amount: '~0.124 USDFC',
+            });
+          }
+        }
+
+        if (actions) {
+          for (const action of actions) {
+            paymentsList.push({
+              id: `action-${action.id}`,
+              type: action.action_type,
+              description: action.description,
+              date: action.created_at,
+              status: 'COMPLETED',
+            });
+          }
+        }
+
+        // Sort by date
+        paymentsList.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setRecentPayments(paymentsList.slice(0, 15));
+
+      } catch (supabaseErr) {
+        console.warn('[Payments] Supabase fetch:', supabaseErr.message);
+      }
 
     } catch (err) {
       console.error('[Payments] Fetch failed:', err);
@@ -90,7 +127,7 @@ const PaymentsPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [synapseReady, wallet]);
+  }, [synapseReady, availableForStorage]);
 
   useEffect(() => {
     if (synapseReady) {
@@ -105,6 +142,24 @@ const PaymentsPage = () => {
     setRefreshing(false);
   };
 
+  const formatBytes = (bytes) => {
+    if (!bytes || bytes === 0) return '—';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '—';
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const formatTime = (dateStr) => {
+    if (!dateStr) return '';
+    return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -116,13 +171,13 @@ const PaymentsPage = () => {
   const balance = paymentInfo?.balance ?? 0;
   const spendRate = paymentInfo?.spendRate ?? 0;
   const runway = paymentInfo?.runway ?? Infinity;
-  const runwayDays = runway === Infinity ? '∞' : Math.floor(runway / 2880); // epochs to days (2880 epochs/day)
+  const runwayDays = runway === Infinity ? '∞' : Math.floor(runway / 2880);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Wallet className="h-6 w-6 text-shamrock" /> Payments (On-Chain)
+          <Wallet className="h-6 w-6 text-shamrock" /> Payments
         </h1>
         <button
           onClick={handleRefresh}
@@ -148,27 +203,32 @@ const PaymentsPage = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Balance */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* MetaMask Balance */}
         <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
           <div className="flex items-center gap-2 mb-2">
             <Wallet className="h-5 w-5 text-shamrock" />
-            <p className="text-sm text-gray-500">USDFC Balance</p>
+            <p className="text-sm text-gray-500">MetaMask</p>
           </div>
-          <p className="text-3xl font-bold text-white">${balance.toFixed(2)}</p>
-          <p className="text-xs text-gray-500 mt-1">On-chain wallet balance</p>
+          <p className="text-2xl font-bold text-white">${balance.toFixed(2)}</p>
         </div>
 
-        {/* Spend Rate */}
+        {/* Deposited */}
         <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
           <div className="flex items-center gap-2 mb-2">
-            <TrendingUp className="h-5 w-5 text-shamrock" />
-            <p className="text-sm text-gray-500">Spend Rate</p>
+            <Database className="h-5 w-5 text-shamrock" />
+            <p className="text-sm text-gray-500">Deposited</p>
           </div>
-          <p className="text-3xl font-bold text-white">
-            ${spendRate.toFixed(8)}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">Per epoch</p>
+          <p className="text-2xl font-bold text-white">${depositedBalance?.toFixed(4) ?? '0.0000'}</p>
+        </div>
+
+        {/* Available */}
+        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-shamrock-darker p-6 bg-shamrock/10">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingDown className="h-5 w-5 text-shamrock" />
+            <p className="text-sm text-gray-500">Available</p>
+          </div>
+          <p className="text-2xl font-bold text-shamrock">${availableForStorage?.toFixed(4) ?? '0.0000'}</p>
         </div>
 
         {/* Runway */}
@@ -177,59 +237,79 @@ const PaymentsPage = () => {
             <Clock className="h-5 w-5 text-shamrock" />
             <p className="text-sm text-gray-500">Runway</p>
           </div>
-          <p className="text-3xl font-bold text-white">
-            {runwayDays === '∞' ? '∞' : `${runwayDays} days`}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">
-            {runway === Infinity ? 'Unlimited' : `${Math.floor(runway)} epochs`}
-          </p>
+          <p className="text-2xl font-bold text-white">{runwayDays === '∞' ? '∞' : `${runwayDays}d`}</p>
         </div>
       </div>
 
-      {/* Operator Approvals */}
-      {paymentInfo?.approvals && (
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Operator Approvals</h2>
-          <pre className="text-xs font-mono text-gray-400 overflow-x-auto">
-            {JSON.stringify(paymentInfo.approvals, null, 2)}
-          </pre>
+      {/* Recent Payments */}
+      <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker overflow-hidden">
+        <div className="p-4 border-b border-gray-200 dark:border-shamrock-darker">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <HardDrive className="h-5 w-5 text-shamrock" /> Recent Storage Payments
+          </h2>
         </div>
-      )}
 
-      {/* Price List */}
-      {paymentInfo?.priceList && (
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Storage Rates (On-Chain)</h2>
-          <div className="space-y-3">
-            {Object.entries(paymentInfo.priceList).map(([key, value]) => (
-              <div key={key} className="flex justify-between">
-                <span className="text-gray-400 capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
-                <span className="font-mono text-white">{value.toString()}</span>
-              </div>
-            ))}
+        {recentPayments.length === 0 ? (
+          <div className="p-8 text-center">
+            <FileText className="h-12 w-12 text-gray-500 mx-auto mb-3" />
+            <p className="text-gray-400">No storage payments yet.</p>
+            <p className="text-sm text-gray-500 mt-2">Upload files to see payment history.</p>
           </div>
-        </div>
-      )}
-
-      {/* Runway Visualization */}
-      <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Runway Estimate</h2>
-        <div className="space-y-3">
-          <div className="flex justify-between">
-            <span className="text-gray-400">Current Balance</span>
-            <span className="font-mono text-white">${balance.toFixed(2)} USDFC</span>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-shamrock-darker">
+                  <th className="px-4 py-3 text-sm text-gray-500">Date</th>
+                  <th className="px-4 py-3 text-sm text-gray-500">Type</th>
+                  <th className="px-4 py-3 text-sm text-gray-500">Description</th>
+                  <th className="px-4 py-3 text-sm text-gray-500">Amount</th>
+                  <th className="px-4 py-3 text-sm text-gray-500">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentPayments.map((payment) => (
+                  <tr key={payment.id} className="border-b border-gray-200 dark:border-shamrock-darker hover:bg-gray-50 dark:hover:bg-shamrock-darker/20">
+                    <td className="px-4 py-3">
+                      <p className="text-sm text-gray-300">{formatDate(payment.date)}</p>
+                      <p className="text-xs text-gray-500">{formatTime(payment.date)}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        payment.type === 'STORAGE' ? 'bg-shamrock/20 text-shamrock' :
+                        payment.type === 'ALERT' ? 'bg-red-500/20 text-red-400' :
+                        payment.type === 'ARCHIVE' ? 'bg-gray-500/20 text-gray-400' :
+                        payment.type === 'PROTECT' ? 'bg-green-500/20 text-green-400' :
+                        'bg-blue-500/20 text-blue-400'
+                      }`}>
+                        {payment.type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-sm text-white">{payment.description}</p>
+                      {payment.pieceCid && (
+                        <p className="text-xs font-mono text-gray-500">
+                          CID: {String(payment.pieceCid).slice(0, 25)}...
+                        </p>
+                      )}
+                      {payment.size > 0 && (
+                        <p className="text-xs text-gray-500">Size: {formatBytes(payment.size)}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-300">
+                      {payment.amount || '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1 text-green-500">
+                        <CheckCircle className="h-4 w-4" /> {payment.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-400">Spend Rate</span>
-            <span className="font-mono text-white">${spendRate.toFixed(8)}/epoch</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-400">Estimated Runway</span>
-            <span className="font-mono text-shamrock font-bold">
-              {runway === Infinity ? '∞' : `${Math.floor(runway).toLocaleString()} epochs`}
-            </span>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -43,7 +43,6 @@ const App = () => {
                 <Route path="/dashboard/agent" element={<AgentActivityPage />} />
                 <Route path="/dashboard/protected" element={<ProtectedFilesPage />} />
                 <Route path="/dashboard/archive" element={<ArchiveCandidatesPage />} />
-                <Route path="/dashboard/datasets" element={<DataSetsPage />} />
                 <Route path="/dashboard/providers" element={<ProvidersPage />} />
                 <Route path="/file/:id" element={<FileDetailsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

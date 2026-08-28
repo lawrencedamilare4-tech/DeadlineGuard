@@ -41,7 +41,6 @@ const AppLayout = () => {
     { label: 'Agent Activity', to: '/dashboard/agent', icon: Activity },
     { label: 'Protected Files', to: '/dashboard/protected', icon: Lock },
     { label: 'Archive Candidates', to: '/dashboard/archive', icon: Archive },
-    { label: 'Data Sets', to: '/dashboard/datasets', icon: Database },
     { label: 'Providers', to: '/dashboard/providers', icon: Server },
     { label: 'Settings', to: '/settings', icon: Settings },
   ];

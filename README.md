@@ -1,113 +1,51 @@
 # DeadlineGuard
 
-A smart storage deadline protection system for Filecoin. Monitor your storage agreements, get alerts before expiry, and automate renewals.
+**Your assignments have deadlines. Your storage does too.**
 
-## Features
+DeadlineGuard is an autonomous Filecoin storage agent for students. It monitors decentralized storage health, payment runway, and academic deadlines to protect critical files before storage conditions become critical.
 
-- **Storage Weather Dashboard** - Real-time monitoring of your storage conditions
-- **Deadline Alerts** - Automatic notifications before storage agreements expire
-- **Forecast Engine** - Predict storage runway and future expiry dates
-- **Agent Automation** - Autonomous file management and renewal
-- **Cost Simulator** - Calculate storage costs and plan your budget
-- **Provider Management** - Compare and select optimal storage providers
+---
 
-## Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js 16+
-- npm or yarn
-- Supabase account
-- Filecoin wallet (optional, for actual storage)
+1. **Node.js** (v18+)
+2. **MetaMask** browser extension
+3. **tFIL** (testnet FIL) — for gas fees on Filecoin Calibration
+4. **tUSDFC** (testnet USDFC) — REQUIRED for storage payments
 
-### Installation
+### Get Testnet Tokens
 
-1. Clone the repository
-```bash
-git clone https://github.com/yourusername/deadlineguard.git
-cd deadlineguard
-```
+You need **tUSDFC** to pay for storage on Filecoin Calibration testnet.
 
-2. Install dependencies
+1. **tFIL Faucet:** https://faucet.calibnet.chainsafe-fil.io/funds.html
+2. **tUSDFC Faucet:** https://forest-explorer.chainsafe.dev/faucet/calibnet_usdfc
+
+**IMPORTANT:** Without tUSDFC, uploads will fail with `InsufficientLockupFunds`.
+
+### Add tUSDFC Token to MetaMask
+
+1. Open MetaMask
+2. Go to **Assets → Import Tokens**
+3. Contract Address: `0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0`
+4. Symbol: `tUSDFC`
+5. Decimals: `18`
+
+### Add Filecoin Calibration Network
+
+1. Open MetaMask
+2. Go to **Settings → Networks → Add Network**
+3. Network Name: `Filecoin Calibration`
+4. RPC URL: `https://api.calibration.node.glif.io/rpc/v1`
+5. Chain ID: `314159`
+6. Symbol: `tFIL`
+7. Block Explorer: `https://calibration.filscan.io`
+
+---
+
+## 🔧 Installation
+
 ```bash
 npm install
-```
-
-3. Set up environment variables
-```bash
-cp .env.example .env.local
-```
-
-4. Update `.env.local` with your Supabase and API keys:
-```
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_key
-VITE_GROQ_API_KEY=your_groq_api_key
-```
-
-5. Start development server
-```bash
 npm run dev
-```
-
-## Project Structure
-
-```
-src/
-├── components/       # React components
-│   ├── common/      # Shared UI components
-│   ├── dashboard/   # Dashboard components
-│   ├── file/        # File management components
-│   ├── layout/      # Layout components
-│   └── landing/     # Landing page components
-├── engines/         # Business logic engines
-│   ├── weatherEngine.js    # Storage monitoring
-│   ├── agentEngine.js      # Automation
-│   └── forecastEngine.js   # Predictions
-├── services/        # External service integrations
-│   ├── ai/         # AI services (Groq)
-│   ├── filecoin/   # Filecoin integration
-│   └── supabase/   # Database services
-├── hooks/          # Custom React hooks
-├── pages/          # Page components
-└── utils/          # Utility functions
-```
-
-## Pages
-
-- **Landing Page** (`/`) - Marketing homepage
-- **Dashboard** (`/dashboard`) - Main control panel
-- **Files** (`/files`) - File management
-- **Settings** (`/settings`) - User preferences
-
-## Services
-
-### Filecoin Services
-- Storage management
-- Provider selection
-- Payment processing
-- File retrieval
-- Verification
-
-### AI Services
-- Groq integration for intelligent reports
-
-### Supabase Services
-- Authentication
-- Database operations
-- Real-time updates
-
-## Building for Production
-
-```bash
-npm run build
-npm run preview
-```
-
-## License
-
-MIT
-
-## Support
-
-For issues and questions, please open an issue on GitHub.
