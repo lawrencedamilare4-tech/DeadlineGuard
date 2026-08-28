@@ -11,6 +11,9 @@ const SettingsPage = () => {
   const { 
     wallet, 
     balance, 
+    depositedBalance,
+    availableForStorage,
+    lockedBalance,
     runway, 
     spendRate, 
     connected, 
@@ -20,6 +23,7 @@ const SettingsPage = () => {
     error, 
     connectWallet, 
     fundWallet,
+    refreshPaymentStatus,
     disconnectWallet 
   } = useFilecoin();
   
@@ -29,6 +33,8 @@ const SettingsPage = () => {
   const [fundAmount, setFundAmount] = useState(10);
   const [authorizing, setAuthorizing] = useState(false);
   const [authorized, setAuthorized] = useState(false);
+  const [fundSuccess, setFundSuccess] = useState(false);
+  const [fundError, setFundError] = useState(null);
 
   const hasLoadedPermissions = useRef(false);
 
@@ -88,11 +94,22 @@ const SettingsPage = () => {
   };
 
   const handleFundWallet = async () => {
+    setFundSuccess(false);
+    setFundError(null);
+    
     try {
       await fundWallet(fundAmount);
-      alert(`Wallet funded with ${fundAmount} USDFC successfully!`);
+      setFundSuccess(true);
+      
+      // Refresh payment status after funding
+      if (typeof refreshPaymentStatus === 'function') {
+        await refreshPaymentStatus();
+      }
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setFundSuccess(false), 5000);
     } catch (err) {
-      alert('Funding failed: ' + err.message);
+      setFundError(err.message || 'Funding failed');
     }
   };
 
@@ -173,16 +190,34 @@ const SettingsPage = () => {
               )}
             </div>
 
-            {/* Balance */}
+            {/* MetaMask Balance */}
             <div className="flex items-center justify-between">
-              <span className="text-gray-600 dark:text-gray-300">Payment Balance</span>
+              <span className="text-gray-600 dark:text-gray-300">MetaMask Balance</span>
               <span className="font-medium">${balance?.toFixed(2) ?? '—'} USDFC</span>
+            </div>
+
+            {/* Deposited Balance */}
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600 dark:text-gray-300">Deposited (Funded)</span>
+              <span className="font-medium">${depositedBalance?.toFixed(4) ?? '0.0000'} USDFC</span>
+            </div>
+
+            {/* Available Balance */}
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600 dark:text-gray-300">Available</span>
+              <span className="font-medium text-shamrock">${availableForStorage?.toFixed(4) ?? '0.0000'} USDFC</span>
+            </div>
+
+            {/* Locked Balance */}
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600 dark:text-gray-300">Locked</span>
+              <span className="font-medium">${lockedBalance?.toFixed(4) ?? '0.0000'} USDFC</span>
             </div>
 
             {/* Spend Rate */}
             <div className="flex items-center justify-between">
               <span className="text-gray-600 dark:text-gray-300">Spend Rate</span>
-              <span className="font-medium">${spendRate?.toFixed(6) ?? '—'} / epoch</span>
+              <span className="font-medium">${spendRate?.toFixed(8) ?? '—'} / epoch</span>
             </div>
 
             {/* Runway */}
@@ -222,6 +257,19 @@ const SettingsPage = () => {
                   )}
                 </button>
               </div>
+
+              {/* Funding Success */}
+              {fundSuccess && (
+                <p className="mt-3 text-green-600 text-sm flex items-center gap-1">
+                  <Check size={16} /> Wallet funded successfully! Balance refreshed.
+                </p>
+              )}
+
+              {/* Funding Error */}
+              {fundError && (
+                <p className="mt-3 text-red-600 text-sm">{fundError}</p>
+              )}
+
               <p className="text-xs text-gray-500 mt-2">
                 This deposits USDFC to the Filecoin Payments contract for storage.
               </p>
