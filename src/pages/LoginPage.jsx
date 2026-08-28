@@ -103,13 +103,6 @@ const handleWalletLogin = async () => {
             ))}
           </div>
         )}
-
-        <p className="mt-6 text-sm text-gray-600 dark:text-gray-300">
-          New to DeadlineGuard?{' '}
-          <Link to="/signup" className="text-shamrock hover:underline">
-            Create an account
-          </Link>
-        </p>
       </div>
     </div>
   );

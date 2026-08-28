@@ -18,7 +18,6 @@ import ProvidersPage from './pages/ProvidersPage';
 import FileDetailsPage from './pages/FileDetailsPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
 
 const App = () => {
   return (
@@ -29,7 +28,6 @@ const App = () => {
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
 
               {/* Protected routes */}
               <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
