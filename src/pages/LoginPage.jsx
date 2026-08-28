@@ -12,13 +12,18 @@ const LoginPage = () => {
   const { user } = useSupabase();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [debugLog, setDebugLog] = useState([]);
   const navigationAttempted = useRef(false);
 
-  // Redirect when user becomes available
+  const addLog = (msg) => {
+    console.log(msg);
+    setDebugLog((prev) => [...prev, msg]);
+  };
+
   useEffect(() => {
     if (user && !navigationAttempted.current) {
       navigationAttempted.current = true;
-      console.log('[Login] User detected, navigating to dashboard');
+      addLog('[Login] User already logged in, navigating to dashboard');
       navigate('/dashboard/overview', { replace: true });
     }
   }, [user, navigate]);
@@ -26,43 +31,62 @@ const LoginPage = () => {
   const handleWalletLogin = async () => {
     setLoading(true);
     setError(null);
+    setDebugLog([]);
     navigationAttempted.current = false;
     
     try {
-      // 1. Connect wallet
-      const walletAddress = await connectWallet();
-      if (!walletAddress) throw new Error('Failed to connect wallet');
-
-      console.log('[Login] Wallet connected:', walletAddress);
-
-      // 2. Create/get Supabase session
-      const { user: authUser, session } = await signInWithWallet(walletAddress);
+      addLog('[Login] Step 1: Connecting wallet...');
       
-      console.log('[Login] Auth user:', authUser?.id);
+      // Check if MetaMask exists
+      if (!window.ethereum) {
+        throw new Error('MetaMask not found. Please install MetaMask.');
+      }
+      addLog('[Login] MetaMask detected');
+      
+      // Connect wallet
+      const walletAddress = await connectWallet();
+      addLog(`[Login] Wallet connected: ${walletAddress}`);
+      
+      if (!walletAddress) {
+        throw new Error('Wallet connection returned no address');
+      }
 
-      if (authUser) {
-        // 3. Store wallet in profile
+      addLog('[Login] Step 2: Creating Supabase session...');
+      
+      // Create/get Supabase session
+      const { user: authUser, session } = await signInWithWallet(walletAddress);
+      addLog(`[Login] Auth user: ${authUser?.id || 'none'}`);
+      
+      // Store profile
+      try {
         await supabase.from('profiles').upsert(
           {
-            id: authUser.id,
+            id: authUser?.id,
             wallet_address: walletAddress,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'id' }
         );
+        addLog('[Login] Profile saved');
+      } catch (profileErr) {
+        addLog(`[Login] Profile save warning: ${profileErr.message}`);
       }
 
-      // 4. Force auth state update
+      addLog('[Login] Step 3: Navigating to dashboard...');
+      
+      // Force auth state refresh
       await supabase.auth.getSession();
       
-      // 5. Navigate after a short delay to allow state to propagate
+      // Navigate
       setTimeout(() => {
-        console.log('[Login] Navigating to dashboard');
+        addLog('[Login] Navigating now');
         navigate('/dashboard/overview', { replace: true });
       }, 500);
       
     } catch (err) {
-      console.error('[Login] Failed:', err);
+      console.error('[Login] Full error:', err);
+      addLog(`[Login] ERROR: ${err.message}`);
+      addLog(`[Login] Stack: ${err.stack?.substring(0, 200)}`);
       setError(err.message || 'Failed to sign in');
       setLoading(false);
     }
@@ -99,6 +123,15 @@ const LoginPage = () => {
             </>
           )}
         </button>
+
+        {/* Debug Log */}
+        {debugLog.length > 0 && (
+          <div className="mt-4 p-3 bg-shamrock-darker/20 rounded-md text-left max-h-40 overflow-y-auto">
+            {debugLog.map((log, idx) => (
+              <p key={idx} className="text-xs font-mono text-gray-400">{log}</p>
+            ))}
+          </div>
+        )}
 
         <p className="mt-6 text-sm text-gray-600 dark:text-gray-300">
           New to DeadlineGuard?{' '}

@@ -61,7 +61,7 @@ const StormSimulation = () => {
     setLoading(false);
   };
 
-  const weatherIcon = weather === 'CLEAR' ? Sun : weather === 'STORM' ? CloudLightning : CloudLightning;
+  const WeatherIcon = weather === 'CLEAR' ? Sun : weather === 'STORM' ? CloudLightning : CloudLightning;
 
   return (
     <div className="card max-w-3xl mx-auto">
@@ -90,7 +90,7 @@ const StormSimulation = () => {
             animate={{ rotate: weather === 'CLEAR' ? 0 : 360 }}
             transition={{ duration: 2 }}
           >
-            <weatherIcon className={`h-12 w-12 ${weather === 'CLEAR' ? 'text-shamrock' : 'text-storm-warning'}`} />
+            <WeatherIcon className={`h-12 w-12 ${weather === 'CLEAR' ? 'text-shamrock' : 'text-storm-warning'}`} />
           </motion.div>
           <div>
             <p className="text-sm text-gray-300">Weather</p>

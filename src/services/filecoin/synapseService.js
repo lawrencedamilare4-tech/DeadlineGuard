@@ -9,12 +9,21 @@ let walletAddress = null;
 
 const GLIF_RPC = 'https://api.calibration.node.glif.io/rpc/v1';
 
-// Intercept fetch to route signing AND transactions to MetaMask
+// Intercept fetch ONLY for Filecoin RPC calls
 function patchWalletRPC() {
   const originalFetch = window.fetch;
   
   window.fetch = async (url, options) => {
-    if (options?.body && typeof options.body === 'string') {
+    const urlStr = typeof url === 'string' ? url : url?.url || '';
+    
+    // ONLY intercept Filecoin RPC calls, NOT Supabase
+    const isFilecoinRPC = 
+      urlStr.includes('drpc.org') ||
+      urlStr.includes('glif.io') ||
+      urlStr.includes('filecoin') ||
+      urlStr.includes('calibration');
+    
+    if (isFilecoinRPC && options?.body && typeof options.body === 'string') {
       try {
         const body = JSON.parse(options.body);
         
@@ -64,7 +73,7 @@ function patchWalletRPC() {
       }
     }
     
-    // Pass through all other requests
+    // Pass through ALL other requests (including Supabase)
     return originalFetch(url, options);
   };
 }
@@ -117,14 +126,12 @@ export async function initializeSynapse(address, options = {}) {
 
     console.log('[Filecoin] User account:', account);
 
-    // Create Viem Wallet Client
     const walletClient = createWalletClient({
       account: account,
       chain: calibration,
       transport: custom(window.ethereum),
     });
 
-    // Initialize Synapse
     const synapse = await Synapse.create({
       account: account,
       signer: walletClient,
@@ -134,7 +141,6 @@ export async function initializeSynapse(address, options = {}) {
 
     console.log('[Filecoin] Synapse created');
     console.log('[Filecoin] Has storage:', !!synapse.storage);
-    console.log('[Filecoin] Has payments:', !!synapse.payments);
 
     synapseInstance = synapse;
     logger.info('[Filecoin] Synapse initialized');

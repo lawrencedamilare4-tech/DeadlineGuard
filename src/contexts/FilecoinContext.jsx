@@ -7,6 +7,9 @@ const FilecoinContext = createContext(null);
 export const FilecoinProvider = ({ children }) => {
   const [wallet, setWallet] = useState(null);
   const [balance, setBalance] = useState(null);
+  const [depositedBalance, setDepositedBalance] = useState(0);
+  const [availableForStorage, setAvailableForStorage] = useState(0);
+  const [lockedBalance, setLockedBalance] = useState(0);
   const [runway, setRunway] = useState(null);
   const [spendRate, setSpendRate] = useState(null);
   const [connected, setConnected] = useState(false);
@@ -15,7 +18,6 @@ export const FilecoinProvider = ({ children }) => {
   const [funding, setFunding] = useState(false);
   const [error, setError] = useState(null);
 
-  // On mount, restore saved wallet and re-initialize
   useEffect(() => {
     const savedWallet = localStorage.getItem('deadlineguard_wallet');
     if (savedWallet) {
@@ -30,6 +32,9 @@ export const FilecoinProvider = ({ children }) => {
           try {
             const paymentStatus = await FilecoinService.getPaymentStatus();
             setBalance(paymentStatus.balance);
+            setDepositedBalance(paymentStatus.depositedBalance || 0);
+            setAvailableForStorage(paymentStatus.availableForStorage || 0);
+            setLockedBalance(paymentStatus.lockedBalance || 0);
             setSpendRate(paymentStatus.spendRate);
             setRunway(paymentStatus.runway);
           } catch (payErr) {
@@ -45,52 +50,56 @@ export const FilecoinProvider = ({ children }) => {
     }
   }, []);
 
-  const connectWallet = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setSynapseReady(false);
-    
-    try {
-      if (!window.ethereum) {
-        throw new Error('No wallet detected. Please install MetaMask.');
-      }
-
-      await FilecoinService.switchToFilecoinCalibration();
-
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      const address = accounts[0];
-
-      await FilecoinService.initializeSynapse(address);
-
-      localStorage.setItem('deadlineguard_wallet', address);
-      setWallet(address);
-      setConnected(true);
-      setSynapseReady(true);
-
-      try {
-        const paymentStatus = await FilecoinService.getPaymentStatus();
-        setBalance(paymentStatus.balance);
-        setSpendRate(paymentStatus.spendRate);
-        setRunway(paymentStatus.runway);
-      } catch (payErr) {
-        console.warn('[Filecoin] Payment fetch failed:', payErr.message);
-        setBalance(0);
-        setSpendRate(0);
-        setRunway(Infinity);
-      }
-
-      logger.info('[Filecoin] Wallet connected:', address);
-      return address;
-    } catch (err) {
-      console.error('[Filecoin] Wallet connection failed:', err);
-      setError(err.message);
-      setConnected(false);
-      setSynapseReady(false);
-      throw err;
-    } finally {
-      setLoading(false);
+const connectWallet = useCallback(async () => {
+  setLoading(true);
+  setError(null);
+  setSynapseReady(false);
+  
+  try {
+    if (!window.ethereum) {
+      throw new Error('No wallet detected. Please install MetaMask.');
     }
-  }, []);
+
+    console.log('[Connect] Switching to Filecoin Calibration...');
+    await FilecoinService.switchToFilecoinCalibration();
+
+    console.log('[Connect] Requesting accounts...');
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    const address = accounts[0];
+    console.log('[Connect] Account:', address);
+
+    console.log('[Connect] Initializing Synapse...');
+    await FilecoinService.initializeSynapse(address);
+
+    localStorage.setItem('deadlineguard_wallet', address);
+    setWallet(address);
+    setConnected(true);
+    setSynapseReady(true);
+
+    console.log('[Connect] Fetching payment status...');
+    try {
+      const paymentStatus = await FilecoinService.getPaymentStatus();
+      setBalance(paymentStatus.balance || 0);
+      setDepositedBalance(paymentStatus.depositedBalance || 0);
+      setAvailableForStorage(paymentStatus.availableForStorage || 0);
+      setLockedBalance(paymentStatus.lockedBalance || 0);
+      setSpendRate(paymentStatus.spendRate || 0);
+      setRunway(paymentStatus.runway || Infinity);
+    } catch (payErr) {
+      console.warn('[Connect] Payment fetch warning:', payErr.message);
+    }
+
+    console.log('[Connect] Wallet connected successfully');
+    return address;
+  } catch (err) {
+    console.error('[Connect] Full error:', err);
+    console.error('[Connect] Error stack:', err.stack);
+    setError(err.message);
+    throw err;
+  } finally {
+    setLoading(false);
+  }
+}, []);
 
   const fundWallet = useCallback(async (amount = 10) => {
     setFunding(true);
@@ -102,27 +111,18 @@ export const FilecoinProvider = ({ children }) => {
       
       console.log('[Filecoin] Payment methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(payments)));
       
-      const amountWei = BigInt(Math.floor(amount * 1e6));
+      const amountWei = BigInt(Math.floor(amount * 1e18));
       
-      // Step 1: Approve USDFC spending
       if (typeof payments.approve === 'function') {
         console.log('[Filecoin] Approving USDFC...');
-        await payments.approve({
-          token: 'USDFC',
-          amount: amountWei,
-        });
+        await payments.approve({ token: 'USDFC', amount: amountWei });
       }
       
-      // Step 2: Deposit USDFC to Payments contract
       if (typeof payments.deposit === 'function') {
         console.log('[Filecoin] Depositing USDFC...');
-        await payments.deposit({
-          token: 'USDFC',
-          amount: amountWei,
-        });
+        await payments.deposit({ token: 'USDFC', amount: amountWei });
       }
       
-      // Step 3: Approve operator (storage provider)
       if (typeof payments.approveOperator === 'function') {
         console.log('[Filecoin] Approving operator...');
         await payments.approveOperator({
@@ -130,11 +130,13 @@ export const FilecoinProvider = ({ children }) => {
         });
       }
       
-      console.log('[Filecoin] Wallet fully funded and approved');
+      console.log('[Filecoin] Wallet fully funded');
       
-      // Refresh payment status
       const paymentStatus = await FilecoinService.getPaymentStatus();
       setBalance(paymentStatus.balance);
+      setDepositedBalance(paymentStatus.depositedBalance || 0);
+      setAvailableForStorage(paymentStatus.availableForStorage || 0);
+      setLockedBalance(paymentStatus.lockedBalance || 0);
       setSpendRate(paymentStatus.spendRate);
       setRunway(paymentStatus.runway);
       
@@ -154,6 +156,9 @@ export const FilecoinProvider = ({ children }) => {
     setConnected(false);
     setSynapseReady(false);
     setBalance(null);
+    setDepositedBalance(0);
+    setAvailableForStorage(0);
+    setLockedBalance(0);
     setSpendRate(null);
     setRunway(null);
     setError(null);
@@ -165,6 +170,9 @@ export const FilecoinProvider = ({ children }) => {
     try {
       const paymentStatus = await FilecoinService.getPaymentStatus();
       setBalance(paymentStatus.balance);
+      setDepositedBalance(paymentStatus.depositedBalance || 0);
+      setAvailableForStorage(paymentStatus.availableForStorage || 0);
+      setLockedBalance(paymentStatus.lockedBalance || 0);
       setSpendRate(paymentStatus.spendRate);
       setRunway(paymentStatus.runway);
     } catch (err) {
@@ -175,6 +183,9 @@ export const FilecoinProvider = ({ children }) => {
   const value = {
     wallet,
     balance,
+    depositedBalance,
+    availableForStorage,
+    lockedBalance,
     runway,
     spendRate,
     connected,
@@ -197,8 +208,27 @@ export const FilecoinProvider = ({ children }) => {
 
 export const useFilecoin = () => {
   const context = useContext(FilecoinContext);
+  
   if (!context) {
-    throw new Error('useFilecoin must be used within a FilecoinProvider');
+    return {
+      wallet: null,
+      balance: 0,
+      depositedBalance: 0,
+      availableForStorage: 0,
+      lockedBalance: 0,
+      runway: Infinity,
+      spendRate: 0,
+      connected: false,
+      synapseReady: false,
+      loading: false,
+      funding: false,
+      error: null,
+      connectWallet: async () => {},
+      disconnectWallet: () => {},
+      fundWallet: async () => {},
+      refreshPaymentStatus: async () => {},
+    };
   }
+  
   return context;
 };
