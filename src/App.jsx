@@ -14,7 +14,7 @@ import ForecastPage from './pages/ForecastPage';
 import AgentActivityPage from './pages/AgentActivityPage';
 import ProtectedFilesPage from './pages/ProtectedFilesPage';
 import ArchiveCandidatesPage from './pages/ArchiveCandidatesPage';
-import DataSetsPage from './pages/DataSetsPage';
+import DataSetsPage from './pages/DatasetsPage';
 import ProvidersPage from './pages/ProvidersPage';
 import FileDetailsPage from './pages/FileDetailsPage';
 import SettingsPage from './pages/SettingsPage';
