@@ -47,65 +47,33 @@ const fetchValidFiles = useCallback(async () => {
   setLoading(true);
   
   try {
-    // 1. Fetch files from Supabase (PieceCIDs)
     let filesData = [];
+
+        console.log('[Dashboard] Wallet value:', wallet);
+    console.log('[Dashboard] Wallet type:', typeof wallet);
     
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (user) {
-      const { data } = await supabase
+    // Query by wallet address with direct columns
+    if (wallet) {
+      const { data, error } = await supabase
         .from('files')
-        .select('*, assignments(*), courses(*)')
-        .eq('user_id', user.id)
-        .not('piece_cid', 'is', null)
-        .order('created_at', { ascending: false });
-      filesData = data || [];
-    }
-    
-    if (filesData.length === 0 && wallet) {
-      const { data } = await supabase
-        .from('files')
-        .select('*, assignments(*), courses(*)')
+        .select('*')
         .eq('wallet_address', wallet)
         .not('piece_cid', 'is', null)
         .order('created_at', { ascending: false });
+      
+      console.log('[Dashboard] Files found:', data?.length);
       filesData = data || [];
     }
 
-    // 2. Fetch metadata from Filecoin
-    let filecoinMetadata = {};
-    try {
-      const synapse = FilecoinService.getSynapse();
-      const storage = synapse.storage;
-      const dataSets = await storage.findDataSets({ source: 'deadlineguard' });
-      
-      for (const ds of (dataSets || [])) {
-        const metadata = ds.metadata || {};
-        if (metadata.fileName) {
-          filecoinMetadata[metadata.fileName] = metadata;
-        }
-        if (metadata.pieceCid) {
-          filecoinMetadata[metadata.pieceCid] = metadata;
-        }
-      }
-      console.log('[Dashboard] Filecoin metadata:', filecoinMetadata);
-    } catch(e) {
-      console.warn('[Dashboard] Filecoin metadata fetch:', e.message);
-    }
-
-    // 3. Merge - use Filecoin metadata for due date if available
     const now = Date.now();
     const validFilesList = filesData
       .filter(file => file.piece_cid)
       .map(file => {
-        // Get metadata from Filecoin by fileName or pieceCid
-        const fcMeta = filecoinMetadata[file.file_name] || filecoinMetadata[file.piece_cid] || {};
-        
-        // Due date priority: Filecoin metadata > Supabase assignments
-        const dueDate = fcMeta.dueDate || file.assignments?.due_date || null;
-        const courseName = fcMeta.courseName || file.courses?.name || null;
-        const assignmentTitle = fcMeta.assignmentTitle || file.assignments?.title || null;
-        const gradeWeight = fcMeta.gradeWeight || file.assignments?.grade_weight || null;
+        // Use DIRECT columns (not joins)
+        const dueDate = file.due_date || null;
+        const courseName = file.course_name || null;
+        const assignmentTitle = file.assignment_title || null;
+        const gradeWeight = file.grade_weight || null;
         
         const daysUntilDue = dueDate 
           ? Math.floor((new Date(dueDate).getTime() - now) / (1000 * 60 * 60 * 24))
@@ -133,15 +101,14 @@ const fetchValidFiles = useCallback(async () => {
     setOverdueFiles(validFilesList.filter(f => f.isOverdue));
 
     console.log('[Dashboard] Valid files:', validFilesList.length);
-    console.log('[Dashboard] Due soon:', dueSoonFiles.length);
-    console.log('[Dashboard] Overdue:', overdueFiles.length);
+    console.log('[Dashboard] File details:', validFilesList);
 
   } catch (err) {
-    console.warn('[Dashboard] Fetch error:', err.message);
+    console.warn('[Dashboard] Error:', err.message);
   } finally {
     setLoading(false);
   }
-}, [wallet, availableForStorage, depositedBalance]);
+}, [wallet]);
 
   useEffect(() => {
     fetchValidFiles();
