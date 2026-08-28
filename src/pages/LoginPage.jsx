@@ -94,8 +94,9 @@ const handleWalletLogin = async () => {
             </>
           )}
         </button>
+        
 
-        {/* Debug Log */}
+        {/* Debug Logs */}
         {debugLog.length > 0 && (
           <div className="mt-4 p-3 bg-shamrock-darker/20 rounded-md text-left max-h-40 overflow-y-auto">
             {debugLog.map((log, idx) => (
