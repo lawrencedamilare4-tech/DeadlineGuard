@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-sans antialiased;
+  }
+  .dark body {
+    @apply bg-shamrock-darkest text-white;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-shamrock hover:bg-shamrock-dark text-white font-semibold py-2 px-6 rounded-md transition-colors;
+  }
+  .btn-secondary {
+    @apply border border-shamrock text-shamrock hover:bg-shamrock/10 font-semibold py-2 px-6 rounded-md transition-colors;
+  }
+  .card {
+    @apply bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6;
+  }
+}
