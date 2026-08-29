@@ -15,6 +15,7 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [debugLog, setDebugLog] = useState([]);
   const navigationAttempted = useRef(false);
+  const connectInitiated = useRef(false); // <-- flag to prevent auto-login
 
   const { openConnectModal } = useConnectModal();
   const { address, isConnected } = useAccount();
@@ -33,12 +34,13 @@ const LoginPage = () => {
     }
   }, [user, navigate]);
 
-  // When wallet connects, perform Supabase anonymous login and link wallet
+  // Only auto-login when user explicitly clicked Connect and wallet becomes connected
   useEffect(() => {
-    if (isConnected && address && !loading && !user) {
+    if (connectInitiated.current && isConnected && address && !loading && !user) {
+      connectInitiated.current = false; // reset flag
       handleSupabaseAuth(address);
     }
-  }, [address, isConnected]);
+  }, [address, isConnected, user, loading]);
 
   const handleSupabaseAuth = async (walletAddress) => {
     setLoading(true);
@@ -62,7 +64,7 @@ const LoginPage = () => {
       // Force auth state update
       await supabase.auth.getSession();
 
-      // Navigate after a short delay to allow state propagation
+      // Navigate after a short delay
       setTimeout(() => {
         addLog('[Login] Navigating to dashboard');
         navigate('/dashboard/overview', { replace: true });
@@ -76,10 +78,17 @@ const LoginPage = () => {
   };
 
   const handleConnectClick = () => {
-    if (isConnected) {
-      // Already connected, redirect to dashboard
-      navigate('/dashboard/overview', { replace: true });
+    if (isConnected && address) {
+      // Already connected, but no Supabase user? Then manually trigger auth
+      if (!user) {
+        connectInitiated.current = true;
+        handleSupabaseAuth(address);
+      } else {
+        navigate('/dashboard/overview', { replace: true });
+      }
     } else {
+      // User clicked Connect – set flag and open modal
+      connectInitiated.current = true;
       openConnectModal();
     }
   };

@@ -21,18 +21,50 @@ import { useFilecoin } from '../../contexts/FilecoinContext';
 import { signOut } from '../../services/supabase/auth';
 import { useFilecoinChain } from '../../hooks/useFilecoinChain';
 import NetworkWarning from './NetworkWarning';
+import { useAccount, useDisconnect } from 'wagmi';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 
 const AppLayout = () => {
   const { user } = useSupabase();
   const navigate = useNavigate();
-  const { wallet, balance, connected, loading: walletLoading, error: walletError, connectWallet } = useFilecoin();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  useFilecoinChain();  
 
+  // RainbowKit/wagmi hooks
+  const { address, isConnected } = useAccount();
+  const { disconnect } = useDisconnect();
+  const { openConnectModal } = useConnectModal();
+
+  // Filecoin context
+  const {
+    balance,
+    loading: walletLoading,
+    error: walletError,
+    disconnectWallet,
+  } = useFilecoin();
+
+  useFilecoinChain();
 
   const handleSignOut = async () => {
+    disconnect();
     await signOut();
-    navigate('/');
+
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (
+        key.startsWith('wagmi') ||
+        key.startsWith('wc@') ||
+        key.startsWith('rainbow') ||
+        key.includes('supabase') ||
+        key === 'deadlineguard_wallet'
+      ) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+
+    if (disconnectWallet) disconnectWallet();
+    navigate('/login', { replace: true });
   };
 
   const navItems = [
@@ -55,7 +87,6 @@ const AppLayout = () => {
       {/* Top bar */}
       <header className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between border-b border-shamrock-darker/40 bg-shamrock-darkest/95 px-4 md:px-6 backdrop-blur">
         <div className="flex items-center gap-2">
-          {/* Hamburger menu for mobile */}
           <button
             className="lg:hidden text-gray-300 hover:text-white mr-2"
             onClick={() => setMobileNavOpen(true)}
@@ -66,24 +97,21 @@ const AppLayout = () => {
           <Cloud className="h-6 w-6 text-shamrock" />
           <span className="text-lg font-semibold tracking-wide text-white">DEADLINEGUARD</span>
         </div>
+
         <div className="flex items-center gap-2 md:gap-4">
-          {connected && wallet ? (
+          {isConnected && address ? (
             <div className="flex items-center gap-2 bg-shamrock-darker/30 rounded-md px-3 py-2">
               <Wallet size={16} className="text-shamrock" />
               <span className="text-sm text-gray-300 font-mono hidden sm:inline">
-                {String(wallet).slice(0, 6)}...{String(wallet).slice(-4)}
+                {address.slice(0, 6)}...{address.slice(-4)}
               </span>
               <span className="text-sm text-shamrock font-medium">
                 ${balance?.toFixed ? balance.toFixed(2) : '—'} USDFC
               </span>
             </div>
-          ) : connected && !synapseReady ? (
-              <button onClick={connectWallet} className="...">
-                Reconnect Wallet
-              </button>
-            ) : (
+          ) : (
             <button
-              onClick={connectWallet}
+              onClick={openConnectModal}
               disabled={walletLoading}
               className="inline-flex items-center gap-2 rounded-md bg-shamrock px-3 md:px-4 py-2 max-sm:text-xs text-sm font-semibold text-shamrock-darkest transition-colors hover:bg-shamrock-light disabled:opacity-50"
             >
@@ -91,9 +119,11 @@ const AppLayout = () => {
               {walletLoading ? 'Connecting...' : 'Connect Wallet'}
             </button>
           )}
+
           {walletError && (
             <span className="text-xs text-storm-critical hidden md:inline">{walletError}</span>
           )}
+
           <button
             onClick={handleSignOut}
             className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 md:px-4 py-2 max-sm:text-xs text-sm font-medium text-gray-300 transition-colors hover:bg-shamrock-darker/30"
@@ -103,15 +133,12 @@ const AppLayout = () => {
         </div>
       </header>
 
-      {/* Mobile navigation drawer overlay */}
+      {/* Mobile drawer overlay */}
       {mobileNavOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={closeMobileNav}
-        />
+        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={closeMobileNav} />
       )}
 
-      {/* Mobile navigation drawer */}
+      {/* Mobile drawer */}
       <aside
         className={`fixed top-0 left-0 bottom-0 w-72 bg-shamrock-darkest border-r border-shamrock-darker/40 z-50 transform transition-transform duration-300 lg:hidden ${
           mobileNavOpen ? 'translate-x-0' : '-translate-x-full'

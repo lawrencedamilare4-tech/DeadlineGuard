@@ -8,24 +8,25 @@ import { supabase } from '../services/supabase/client';
 import { calculateWeather } from '../engines/weatherEngine';
 import { useFilecoin } from '../contexts/FilecoinContext';
 import { generateGroqReport } from '../services/ai/groqService';
-import { 
-  Loader2, RefreshCw, Database, HardDrive, Wallet, Lock, TrendingDown, 
-  FileText, Copy, CheckCircle, Brain, Send, MessageCircle, Sparkles, Cloud, 
+import {
+  Loader2, RefreshCw, Database, HardDrive, Wallet, Lock, TrendingDown,
+  FileText, Copy, CheckCircle, Brain, Send, MessageCircle, Sparkles, Cloud,
   Calendar, AlertTriangle, Clock
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useAccount } from 'wagmi';
 
 const DashboardPage = () => {
-  const { 
-    wallet, 
-    balance, 
+  const {
+    balance,
     depositedBalance,
     availableForStorage,
     lockedBalance,
-    spendRate, 
-    connected, 
-    refreshPaymentStatus 
+    spendRate,
+    refreshPaymentStatus
   } = useFilecoin();
+
+  const { address: wagmiAddress, isConnected } = useAccount();
 
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +39,7 @@ const DashboardPage = () => {
   const [aiInsight, setAiInsight] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const insightGeneratedRef = useRef(false);
-  
+
   // Chatbot state
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -46,35 +47,35 @@ const DashboardPage = () => {
 
   const fetchValidFiles = useCallback(async () => {
     setLoading(true);
-    
     try {
-      let filesData = [];
+      const effectiveWallet = wagmiAddress
+        ? wagmiAddress.toLowerCase()
+        : null;
 
-      console.log('[Dashboard] Wallet value:', wallet);
-      console.log('[Dashboard] Wallet type:', typeof wallet);
-      
-      if (wallet) {
-        const { data, error } = await supabase
-          .from('files')
-          .select('*')
-          .eq('wallet_address', wallet)
-          .not('piece_cid', 'is', null)
-          .order('created_at', { ascending: false });
-        
-        console.log('[Dashboard] Files found:', data?.length);
-        filesData = data || [];
+      console.log('[Dashboard] Effective wallet:', effectiveWallet);
+
+      if (!effectiveWallet) {
+        setValidFiles([]);
+        setLoading(false);
+        return;
       }
 
+      const { data, error } = await supabase
+        .from('files')
+        .select('*')
+        .eq('wallet_address', effectiveWallet)
+        .not('piece_cid', 'is', null)
+        .order('created_at', { ascending: false });
+
+      console.log('[Dashboard] Files found:', data?.length, 'Error:', error?.message);
+
+      const filesData = data || [];
       const now = Date.now();
       const validFilesList = filesData
         .filter(file => file.piece_cid)
         .map(file => {
           const dueDate = file.due_date || null;
-          const courseName = file.course_name || null;
-          const assignmentTitle = file.assignment_title || null;
-          const gradeWeight = file.grade_weight || null;
-          
-          const daysUntilDue = dueDate 
+          const daysUntilDue = dueDate
             ? Math.floor((new Date(dueDate).getTime() - now) / (1000 * 60 * 60 * 24))
             : null;
 
@@ -88,9 +89,9 @@ const DashboardPage = () => {
             daysUntilDue,
             isDueSoon: daysUntilDue !== null && daysUntilDue <= 7 && daysUntilDue >= 0,
             isOverdue: daysUntilDue !== null && daysUntilDue < 0,
-            courseName,
-            assignmentTitle,
-            gradeWeight,
+            courseName: file.course_name || null,
+            assignmentTitle: file.assignment_title || null,
+            gradeWeight: file.grade_weight || null,
           };
         });
 
@@ -99,21 +100,25 @@ const DashboardPage = () => {
       setDueSoonFiles(validFilesList.filter(f => f.isDueSoon));
       setOverdueFiles(validFilesList.filter(f => f.isOverdue));
 
-      console.log('[Dashboard] Valid files:', validFilesList.length);
-      console.log('[Dashboard] File details:', validFilesList);
+      const weatherResult = calculateWeather({
+        storageUtilization: totalStorageSize > 0 ? Math.min(1, totalStorageSize / (10 * 1024 * 1024 * 1024)) : 0,
+        availableForStorage: availableForStorage || 0,
+        depositedBalance: depositedBalance || 0,
+        totalFiles: validFilesList.length,
+      });
 
+      setWeather(weatherResult);
     } catch (err) {
-      console.warn('[Dashboard] Error:', err.message);
+      console.warn('[Dashboard] Fetch error:', err.message);
     } finally {
       setLoading(false);
     }
-  }, [wallet]);
+  }, [wagmiAddress, availableForStorage, depositedBalance, totalStorageSize]);
 
   useEffect(() => {
     fetchValidFiles();
   }, [fetchValidFiles]);
 
-  // Auto-generate AI insight
   useEffect(() => {
     if (!loading && validFiles.length > 0 && !insightGeneratedRef.current) {
       insightGeneratedRef.current = true;
@@ -124,7 +129,6 @@ const DashboardPage = () => {
   const generateAutoInsight = async () => {
     setAiLoading(true);
     setAiInsight(null);
-
     try {
       const context = {
         balance: balance || 0,
@@ -136,7 +140,6 @@ const DashboardPage = () => {
         dueSoon: dueSoonFiles.length,
         overdue: overdueFiles.length,
       };
-
       const report = await generateGroqReport(context, 'agent_report');
       setAiInsight(report);
     } catch (err) {
@@ -180,7 +183,6 @@ const DashboardPage = () => {
         weatherState: weather?.state || 'CLEAR',
         userQuestion: userMessage,
       };
-
       const response = await generateGroqReport(context, 'chat_response');
       setChatMessages((prev) => [...prev, { role: 'assistant', content: response }]);
     } catch (err) {
@@ -226,13 +228,13 @@ const DashboardPage = () => {
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <span className={`h-3 w-3 rounded-full ${connected ? 'bg-shamrock animate-pulse' : 'bg-gray-500'}`} />
+              <span className={`h-3 w-3 rounded-full ${isConnected ? 'bg-shamrock animate-pulse' : 'bg-gray-500'}`} />
               <span className="text-sm text-gray-300">
-                {connected ? 'Wallet Connected' : 'Wallet Not Connected'}
+                {isConnected ? 'Wallet Connected' : 'Wallet Not Connected'}
               </span>
-              {wallet && (
+              {wagmiAddress && (
                 <span className="text-sm font-mono text-gray-400">
-                  {String(wallet).slice(0, 6)}...{String(wallet).slice(-4)}
+                  {wagmiAddress.slice(0, 6)}...{wagmiAddress.slice(-4)}
                 </span>
               )}
             </div>
@@ -271,7 +273,7 @@ const DashboardPage = () => {
           <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
               <p className="text-xs text-gray-500 flex items-center gap-1">
-                <Wallet className="h-3 w-3" /> MetaMask
+                <Wallet className="h-3 w-3" /> Wallet Balance
               </p>
               <p className="text-lg font-bold text-white">${balance?.toFixed(2) ?? '0.00'}</p>
             </div>
@@ -321,9 +323,9 @@ const DashboardPage = () => {
 
           {/* Runway */}
           <div className="mt-6">
-            <RunwayCard 
-              days={availableForStorage > 0 ? Math.floor((availableForStorage / (spendRate || 0.000000001)) / 2880) : 0} 
-              percentage={Math.min(100, (availableForStorage / Math.max(depositedBalance, 0.01)) * 100)} 
+            <RunwayCard
+              days={availableForStorage > 0 ? Math.floor((availableForStorage / (spendRate || 0.000000001)) / 2880) : 0}
+              percentage={Math.min(100, (availableForStorage / Math.max(depositedBalance, 0.01)) * 100)}
             />
           </div>
 
@@ -340,8 +342,8 @@ const DashboardPage = () => {
               ) : (
                 chatMessages.map((msg, idx) => (
                   <div key={idx} className={`p-3 rounded-lg ${
-                    msg.role === 'user' 
-                      ? 'bg-shamrock/20 text-white ml-8' 
+                    msg.role === 'user'
+                      ? 'bg-shamrock/20 text-white ml-8'
                       : 'bg-shamrock-darker/20 text-gray-300 mr-8'
                   }`}>
                     <p className="text-sm">{msg.content}</p>
@@ -364,9 +366,9 @@ const DashboardPage = () => {
                 placeholder="Ask about your storage..."
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-shamrock-darker rounded-md bg-white dark:bg-shamrock-darker text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-shamrock"
               />
-              <button 
-                onClick={handleSendMessage} 
-                disabled={chatLoading || !chatInput.trim()} 
+              <button
+                onClick={handleSendMessage}
+                disabled={chatLoading || !chatInput.trim()}
                 className="inline-flex items-center gap-2 rounded-md bg-shamrock px-4 py-2 text-sm font-semibold text-white hover:bg-shamrock-dark transition-colors disabled:opacity-50"
               >
                 <Send size={16} /> Send
