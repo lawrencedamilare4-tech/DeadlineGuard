@@ -64,13 +64,7 @@ const Navbar = () => {
                 >
                   Dashboard
                 </Link>
-                <Link
-                  to="/settings"
-                  className="text-gray-700 dark:text-gray-300 hover:text-shamrock dark:hover:text-shamrock-light px-3 py-2 rounded-md text-sm font-medium flex items-center"
-                >
-                  <Settings className="h-4 w-4 mr-1" />
-                  Settings
-                </Link>
+ 
                 <button
                   onClick={handleSignOut}
                   className="text-gray-700 dark:text-gray-300 hover:text-shamrock dark:hover:text-shamrock-light px-3 py-2 rounded-md text-sm font-medium flex items-center"
