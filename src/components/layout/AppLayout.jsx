@@ -19,6 +19,7 @@ import {
 import { useSupabase } from '../../hooks/useSupabase';
 import { useFilecoin } from '../../contexts/FilecoinContext';
 import { signOut } from '../../services/supabase/auth';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 const AppLayout = () => {
   const { user } = useSupabase();

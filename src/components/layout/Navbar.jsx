@@ -50,13 +50,7 @@ const Navbar = () => {
             ) : (
               <>
                 <Link
-                  to="/login"
-                  className="text-gray-700 dark:text-gray-300 hover:text-shamrock dark:hover:text-shamrock-light px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  Sign In
-                </Link>
-                <Link
-                  to="/signup"
+                  to="/dashboard/overview"
                   className="btn-primary text-sm"
                 >
                   Get Started

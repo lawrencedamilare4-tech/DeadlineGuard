@@ -14,7 +14,6 @@ import {
   Calendar, AlertTriangle, Clock
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { FilecoinService } from '../services/filecoin';
 
 const DashboardPage = () => {
   const { 
@@ -39,76 +38,76 @@ const DashboardPage = () => {
   const [aiInsight, setAiInsight] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const insightGeneratedRef = useRef(false);
+  
+  // Chatbot state
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
-const fetchValidFiles = useCallback(async () => {
-  setLoading(true);
-  
-  try {
-    let filesData = [];
-
-        console.log('[Dashboard] Wallet value:', wallet);
-    console.log('[Dashboard] Wallet type:', typeof wallet);
+  const fetchValidFiles = useCallback(async () => {
+    setLoading(true);
     
-    // Query by wallet address with direct columns
-    if (wallet) {
-      const { data, error } = await supabase
-        .from('files')
-        .select('*')
-        .eq('wallet_address', wallet)
-        .not('piece_cid', 'is', null)
-        .order('created_at', { ascending: false });
+    try {
+      let filesData = [];
+
+      console.log('[Dashboard] Wallet value:', wallet);
+      console.log('[Dashboard] Wallet type:', typeof wallet);
       
-      console.log('[Dashboard] Files found:', data?.length);
-      filesData = data || [];
-    }
-
-    const now = Date.now();
-    const validFilesList = filesData
-      .filter(file => file.piece_cid)
-      .map(file => {
-        // Use DIRECT columns (not joins)
-        const dueDate = file.due_date || null;
-        const courseName = file.course_name || null;
-        const assignmentTitle = file.assignment_title || null;
-        const gradeWeight = file.grade_weight || null;
+      if (wallet) {
+        const { data, error } = await supabase
+          .from('files')
+          .select('*')
+          .eq('wallet_address', wallet)
+          .not('piece_cid', 'is', null)
+          .order('created_at', { ascending: false });
         
-        const daysUntilDue = dueDate 
-          ? Math.floor((new Date(dueDate).getTime() - now) / (1000 * 60 * 60 * 24))
-          : null;
+        console.log('[Dashboard] Files found:', data?.length);
+        filesData = data || [];
+      }
 
-        return {
-          id: file.id,
-          file_name: file.file_name,
-          file_size: file.file_size || 0,
-          piece_cid: file.piece_cid,
-          status: file.status || 'active',
-          dueDate,
-          daysUntilDue,
-          isDueSoon: daysUntilDue !== null && daysUntilDue <= 7 && daysUntilDue >= 0,
-          isOverdue: daysUntilDue !== null && daysUntilDue < 0,
-          courseName,
-          assignmentTitle,
-          gradeWeight,
-        };
-      });
+      const now = Date.now();
+      const validFilesList = filesData
+        .filter(file => file.piece_cid)
+        .map(file => {
+          const dueDate = file.due_date || null;
+          const courseName = file.course_name || null;
+          const assignmentTitle = file.assignment_title || null;
+          const gradeWeight = file.grade_weight || null;
+          
+          const daysUntilDue = dueDate 
+            ? Math.floor((new Date(dueDate).getTime() - now) / (1000 * 60 * 60 * 24))
+            : null;
 
-    setValidFiles(validFilesList);
-    setTotalStorageSize(validFilesList.reduce((sum, f) => sum + (f.file_size || 0), 0));
-    setDueSoonFiles(validFilesList.filter(f => f.isDueSoon));
-    setOverdueFiles(validFilesList.filter(f => f.isOverdue));
+          return {
+            id: file.id,
+            file_name: file.file_name,
+            file_size: file.file_size || 0,
+            piece_cid: file.piece_cid,
+            status: file.status || 'active',
+            dueDate,
+            daysUntilDue,
+            isDueSoon: daysUntilDue !== null && daysUntilDue <= 7 && daysUntilDue >= 0,
+            isOverdue: daysUntilDue !== null && daysUntilDue < 0,
+            courseName,
+            assignmentTitle,
+            gradeWeight,
+          };
+        });
 
-    console.log('[Dashboard] Valid files:', validFilesList.length);
-    console.log('[Dashboard] File details:', validFilesList);
+      setValidFiles(validFilesList);
+      setTotalStorageSize(validFilesList.reduce((sum, f) => sum + (f.file_size || 0), 0));
+      setDueSoonFiles(validFilesList.filter(f => f.isDueSoon));
+      setOverdueFiles(validFilesList.filter(f => f.isOverdue));
 
-  } catch (err) {
-    console.warn('[Dashboard] Error:', err.message);
-  } finally {
-    setLoading(false);
-  }
-}, [wallet]);
+      console.log('[Dashboard] Valid files:', validFilesList.length);
+      console.log('[Dashboard] File details:', validFilesList);
+
+    } catch (err) {
+      console.warn('[Dashboard] Error:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [wallet]);
 
   useEffect(() => {
     fetchValidFiles();
@@ -120,7 +119,7 @@ const fetchValidFiles = useCallback(async () => {
       insightGeneratedRef.current = true;
       generateAutoInsight();
     }
-  }, [loading, validFiles.length, availableForStorage, weather]);
+  }, [loading, validFiles.length, availableForStorage]);
 
   const generateAutoInsight = async () => {
     setAiLoading(true);
@@ -173,6 +172,7 @@ const fetchValidFiles = useCallback(async () => {
       const context = {
         balance: balance || 0,
         availableForStorage: availableForStorage || 0,
+        depositedBalance: depositedBalance || 0,
         totalFiles: validFiles.length,
         totalStorage: totalStorageSize,
         dueSoon: dueSoonFiles.length,
@@ -325,6 +325,53 @@ const fetchValidFiles = useCallback(async () => {
               days={availableForStorage > 0 ? Math.floor((availableForStorage / (spendRate || 0.000000001)) / 2880) : 0} 
               percentage={Math.min(100, (availableForStorage / Math.max(depositedBalance, 0.01)) * 100)} 
             />
+          </div>
+
+          {/* Chatbot */}
+          <div className="mt-6 bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
+              <MessageCircle className="h-5 w-5 text-shamrock" /> Ask About Your Storage
+            </h2>
+            <div className="space-y-3 mb-4 max-h-60 overflow-y-auto">
+              {chatMessages.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  Ask: "How much storage do I have left?" or "Which files are overdue?"
+                </p>
+              ) : (
+                chatMessages.map((msg, idx) => (
+                  <div key={idx} className={`p-3 rounded-lg ${
+                    msg.role === 'user' 
+                      ? 'bg-shamrock/20 text-white ml-8' 
+                      : 'bg-shamrock-darker/20 text-gray-300 mr-8'
+                  }`}>
+                    <p className="text-sm">{msg.content}</p>
+                  </div>
+                ))
+              )}
+              {chatLoading && (
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Thinking...</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                placeholder="Ask about your storage..."
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-shamrock-darker rounded-md bg-white dark:bg-shamrock-darker text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-shamrock"
+              />
+              <button 
+                onClick={handleSendMessage} 
+                disabled={chatLoading || !chatInput.trim()} 
+                className="inline-flex items-center gap-2 rounded-md bg-shamrock px-4 py-2 text-sm font-semibold text-white hover:bg-shamrock-dark transition-colors disabled:opacity-50"
+              >
+                <Send size={16} /> Send
+              </button>
+            </div>
           </div>
 
           {/* Files Table */}

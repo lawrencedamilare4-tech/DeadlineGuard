@@ -28,6 +28,8 @@ const App = () => {
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
+              <Route path="*" element={<div>Page not found</div>} />
+
 
               {/* Protected routes */}
               <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
