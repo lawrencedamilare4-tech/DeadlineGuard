@@ -1,7 +1,8 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { defineChain } from 'viem';
 
-const filecoinCalibration = defineChain({
+
+export const filecoinCalibration = defineChain({
   id: 314159,
   name: 'Filecoin Calibration',
   network: 'filecoin-calibration',
@@ -14,6 +15,7 @@ const filecoinCalibration = defineChain({
     default: { name: 'Filscan', url: 'https://calibration.filscan.io' },
   },
 });
+
 
 export const config = getDefaultConfig({
   appName: 'DeadlineGuard',

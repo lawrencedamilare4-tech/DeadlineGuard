@@ -19,13 +19,15 @@ import {
 import { useSupabase } from '../../hooks/useSupabase';
 import { useFilecoin } from '../../contexts/FilecoinContext';
 import { signOut } from '../../services/supabase/auth';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useFilecoinChain } from '../../hooks/useFilecoinChain';
+import NetworkWarning from './NetworkWarning';
 
 const AppLayout = () => {
   const { user } = useSupabase();
   const navigate = useNavigate();
   const { wallet, balance, connected, loading: walletLoading, error: walletError, connectWallet } = useFilecoin();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useFilecoinChain();  
 
 
   const handleSignOut = async () => {
@@ -167,6 +169,7 @@ const AppLayout = () => {
 
       {/* Main content */}
       <main className="flex-1 lg:ml-64 pt-16 px-4 py-8">
+        <NetworkWarning />
         <Outlet />
       </main>
     </div>

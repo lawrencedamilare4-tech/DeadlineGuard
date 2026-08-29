@@ -2,15 +2,32 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CloudLightning, Wallet, LogOut, Settings } from 'lucide-react';
 import { useSupabase } from '../../hooks/useSupabase';
+import { useDisconnect } from 'wagmi';
 import { signOut } from '../../services/supabase/auth';
+import { useFilecoin } from '../../contexts/FilecoinContext';
 
 const Navbar = () => {
   const { user } = useSupabase();
   const navigate = useNavigate();
+  const { disconnectWallet } = useFilecoin();   // if you have this in context
+  const { disconnect } = useDisconnect();    
 
   const handleSignOut = async () => {
     await signOut();
+    
+    // 2. Disconnect from RainbowKit / wagmi
+    disconnect();
+
+    // 3. Clear any custom Filecoin context state (if needed)
+    disconnectWallet?.();   // optional, if you want to reset Filecoin state
+
+    // 4. Redirect to home
     navigate('/');
+
+    localStorage.removeItem('deadlineguard_wallet');
+    localStorage.removeItem('supabase.auth.token');               // Supabase session
+    localStorage.removeItem('wagmi.store');                       // wagmi/RainbowKit state
+    localStorage.removeItem('wc@2:client:0.3//session');  
   };
 
   return (
@@ -50,7 +67,7 @@ const Navbar = () => {
             ) : (
               <>
                 <Link
-                  to="/dashboard/overview"
+                  to="/login"
                   className="btn-primary text-sm"
                 >
                   Get Started

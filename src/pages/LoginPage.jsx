@@ -6,6 +6,7 @@ import { Wallet, Loader2 } from 'lucide-react';
 import { supabase } from '../services/supabase/client';
 import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
+import NetworkWarning from '../components/layout/NetworkWarning';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -96,6 +97,8 @@ const LoginPage = () => {
             {error}
           </div>
         )}
+
+        <NetworkWarning />
 
         <button
           onClick={handleConnectClick}
