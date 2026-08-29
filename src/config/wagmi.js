@@ -22,4 +22,5 @@ export const config = getDefaultConfig({
   projectId: '0b86090b08d3a56d2ed914b48ead4bb0', // ← Replace with your ID
   chains: [filecoinCalibration],
   ssr: false,
+  autoConnect: false, 
 });

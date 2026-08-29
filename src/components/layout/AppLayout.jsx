@@ -85,7 +85,7 @@ const AppLayout = () => {
             <button
               onClick={connectWallet}
               disabled={walletLoading}
-              className="inline-flex items-center gap-2 rounded-md bg-shamrock px-3 md:px-4 py-2 text-sm font-semibold text-shamrock-darkest transition-colors hover:bg-shamrock-light disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-md bg-shamrock px-3 md:px-4 py-2 max-sm:text-xs text-sm font-semibold text-shamrock-darkest transition-colors hover:bg-shamrock-light disabled:opacity-50"
             >
               <Wallet size={16} />
               {walletLoading ? 'Connecting...' : 'Connect Wallet'}
@@ -96,10 +96,9 @@ const AppLayout = () => {
           )}
           <button
             onClick={handleSignOut}
-            className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 md:px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-shamrock-darker/30"
+            className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 md:px-4 py-2 max-sm:text-xs text-sm font-medium text-gray-300 transition-colors hover:bg-shamrock-darker/30"
           >
             <LogOut size={16} />
-            Sign Out
           </button>
         </div>
       </header>

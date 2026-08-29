@@ -23,11 +23,26 @@ const Navbar = () => {
 
     // 4. Redirect to home
     navigate('/');
-
+ 
+    // clear localStorage items related to auth and wallet
     localStorage.removeItem('deadlineguard_wallet');
     localStorage.removeItem('supabase.auth.token');               // Supabase session
     localStorage.removeItem('wagmi.store');                       // wagmi/RainbowKit state
     localStorage.removeItem('wc@2:client:0.3//session');  
+
+      const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (
+        key.startsWith('wagmi') ||
+        key.startsWith('wc@') ||
+        key.startsWith('rainbow') ||
+        key.includes('supabase')
+      ) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
   };
 
   return (
@@ -61,7 +76,6 @@ const Navbar = () => {
                   className="text-gray-700 dark:text-gray-300 hover:text-shamrock dark:hover:text-shamrock-light px-3 py-2 rounded-md text-sm font-medium flex items-center"
                 >
                   <LogOut className="h-4 w-4 mr-1" />
-                  Sign Out
                 </button>
               </>
             ) : (
