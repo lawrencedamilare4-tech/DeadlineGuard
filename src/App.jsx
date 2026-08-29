@@ -13,8 +13,6 @@ import PaymentsPage from './pages/PaymentsPage';
 import ForecastPage from './pages/ForecastPage';
 import AgentActivityPage from './pages/AgentActivityPage';
 import ProtectedFilesPage from './pages/ProtectedFilesPage';
-import ArchiveCandidatesPage from './pages/ArchiveCandidatesPage';
-import ProvidersPage from './pages/ProvidersPage';
 import FileDetailsPage from './pages/FileDetailsPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
@@ -28,7 +26,7 @@ const App = () => {
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
-              <Route path="*" element={<div>Page not found</div>} />
+               <Route path="*" element={<div>Page not found</div>} />
 
 
               {/* Protected routes */}
@@ -41,8 +39,6 @@ const App = () => {
                 <Route path="/dashboard/forecast" element={<ForecastPage />} />
                 <Route path="/dashboard/agent" element={<AgentActivityPage />} />
                 <Route path="/dashboard/protected" element={<ProtectedFilesPage />} />
-                <Route path="/dashboard/archive" element={<ArchiveCandidatesPage />} />
-                <Route path="/dashboard/providers" element={<ProvidersPage />} />
                 <Route path="/file/:id" element={<FileDetailsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>

@@ -114,3 +114,7 @@ export const STORM_SEQUENCE = [
   { weather: 'watch',    runway: 11, balance: 3.70, spend: 0.30, log: { title: 'Conditions improving',      detail: 'Runway climbing back toward baseline.' } },
   { weather: 'clear',    runway: 14, balance: 4.82, spend: 0.34, log: { title: 'Clear skies restored',      detail: 'Every deadline-critical file protected. Nothing lost.' } },
 ];
+
+// Estimated Filecoin storage cost (tUSDFC per GB per month)
+export const MONTHLY_COST_PER_GB = 0.05;
+export const GB_IN_BYTES = 1024 * 1024 * 1024;

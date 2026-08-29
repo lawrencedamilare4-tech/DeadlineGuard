@@ -39,6 +39,7 @@ const DashboardPage = () => {
   const [aiInsight, setAiInsight] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const insightGeneratedRef = useRef(false);
+  const [statusFilter, setStatusFilter] = useState('all');
 
   // Chatbot state
   const [chatMessages, setChatMessages] = useState([]);
@@ -79,6 +80,11 @@ const DashboardPage = () => {
             ? Math.floor((new Date(dueDate).getTime() - now) / (1000 * 60 * 60 * 24))
             : null;
 
+          // Completed files are NOT due soon or overdue
+          const isCompleted = file.status === 'completed';
+          const isOverdue = !isCompleted && daysUntilDue !== null && daysUntilDue < 0;
+          const isDueSoon = !isCompleted && daysUntilDue !== null && daysUntilDue <= 7 && daysUntilDue >= 0;
+
           return {
             id: file.id,
             file_name: file.file_name,
@@ -87,8 +93,9 @@ const DashboardPage = () => {
             status: file.status || 'active',
             dueDate,
             daysUntilDue,
-            isDueSoon: daysUntilDue !== null && daysUntilDue <= 7 && daysUntilDue >= 0,
-            isOverdue: daysUntilDue !== null && daysUntilDue < 0,
+            isDueSoon,
+            isOverdue,
+            isCompleted,
             courseName: file.course_name || null,
             assignmentTitle: file.assignment_title || null,
             gradeWeight: file.grade_weight || null,
@@ -212,6 +219,17 @@ const DashboardPage = () => {
     if (!dateStr) return 'No due date';
     return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   };
+
+  // Filter files based on selected status
+  const filteredFiles = validFiles.filter(file => {
+    if (statusFilter === 'all') return true;
+    if (statusFilter === 'active') return file.status === 'active';
+    if (statusFilter === 'completed') return file.status === 'completed';
+    if (statusFilter === 'protected') return file.status === 'protected';
+    if (statusFilter === 'overdue') return file.isOverdue;
+    if (statusFilter === 'dueSoon') return file.isDueSoon;
+    return true;
+  });
 
   if (loading) {
     return (
@@ -378,12 +396,24 @@ const DashboardPage = () => {
 
           {/* Files Table */}
           <div className="mt-8 bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker overflow-hidden">
-            <div className="p-4 border-b border-gray-200 dark:border-shamrock-darker">
+            <div className="p-4 border-b border-gray-200 dark:border-shamrock-darker flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Cloud className="h-5 w-5 text-shamrock" /> Your Files
               </h2>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 bg-shamrock-darker/30 border border-shamrock-darker rounded-md text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-shamrock"
+              >
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+                <option value="protected">Protected</option>
+                <option value="overdue">Overdue</option>
+                <option value="dueSoon">Due Soon</option>
+              </select>
             </div>
-            {validFiles.length === 0 ? (
+            {filteredFiles.length === 0 ? (
               <div className="p-8 text-center">
                 <FileText className="h-12 w-12 text-gray-500 mx-auto mb-3" />
                 <p className="text-gray-400">No files found.</p>
@@ -404,7 +434,7 @@ const DashboardPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {validFiles.map((file) => (
+                    {filteredFiles.map((file) => (
                       <tr key={file.id} className="border-b border-gray-200 dark:border-shamrock-darker hover:bg-gray-50 dark:hover:bg-shamrock-darker/20">
                         <td className="px-4 py-3">
                           <span className="text-shamrock font-medium">{file.file_name}</span>
@@ -418,7 +448,15 @@ const DashboardPage = () => {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          {file.isOverdue ? (
+                          {file.status === 'completed' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-green-500/20 text-green-400">
+                              <CheckCircle className="h-3 w-3" /> COMPLETED
+                            </span>
+                          ) : file.status === 'protected' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400">
+                              <Lock className="h-3 w-3" /> PROTECTED
+                            </span>
+                          ) : file.isOverdue ? (
                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400">
                               <AlertTriangle className="h-3 w-3" /> OVERDUE ({Math.abs(file.daysUntilDue)} days)
                             </span>
@@ -428,7 +466,7 @@ const DashboardPage = () => {
                             </span>
                           ) : (
                             <span className="px-2 py-1 rounded-full text-xs bg-green-500/20 text-green-400">
-                              OK ({file.daysUntilDue} days)
+                              ACTIVE
                             </span>
                           )}
                         </td>

@@ -3,9 +3,9 @@ import { supabase } from '../services/supabase/client';
 import { FilecoinService } from '../services/filecoin';
 import { useFilecoin } from '../contexts/FilecoinContext';
 import { generateGroqReport } from '../services/ai/groqService';
-import { 
-  Activity, Lock, Archive, AlertTriangle, CheckCircle, Zap, Brain, Loader2, 
-  RefreshCw, ShieldCheck, TrendingUp, FileText, Wallet, Clock, Cloud, Database, Calendar
+import {
+  Activity, Lock, Archive, AlertTriangle, CheckCircle, Zap, Brain, Loader2,
+  RefreshCw, ShieldCheck, TrendingUp, FileText, Wallet, Clock, Trash2
 } from 'lucide-react';
 
 const actionIcons = {
@@ -16,7 +16,7 @@ const actionIcons = {
   RESTORE: Zap,
   REBALANCE: TrendingUp,
   REPORT: Brain,
-  DELETE: Archive,
+  DELETE: Trash2,
 };
 
 const actionColors = {
@@ -38,161 +38,63 @@ const AgentActivityPage = () => {
   const [aiSummary, setAiSummary] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [uploadedFiles, setUploadedFiles] = useState([]);
-  const [onChainDataSets, setOnChainDataSets] = useState([]);
-  const [filecoinMetadata, setFilecoinMetadata] = useState({});
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchActivities = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
-      // 1. Fetch agent actions from Supabase
-      let actionsData = [];
       const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        const { data, error } = await supabase
-          .from('agent_actions')
-          .select('*, files(file_name, piece_cid)')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(50);
-
-        if (error) throw error;
-        actionsData = data || [];
+      if (!user) {
+        setActivities([]);
+        setLoading(false);
+        return;
       }
 
-      setActivities(actionsData);
+      const { data, error } = await supabase
+        .from('agent_actions')
+        .select('*, files(file_name, piece_cid)')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-      // 2. Fetch uploaded files from Supabase
-      let filesData = [];
-      if (user) {
-        const { data } = await supabase
-          .from('files')
-          .select('*, assignments(*), courses(*)')
-          .eq('user_id', user.id)
-          .not('piece_cid', 'is', null)
-          .order('created_at', { ascending: false });
-        filesData = data || [];
-      }
-      
-      if (filesData.length === 0 && wallet) {
-        const { data } = await supabase
-          .from('files')
-          .select('*, assignments(*), courses(*)')
-          .eq('wallet_address', wallet)
-          .not('piece_cid', 'is', null)
-          .order('created_at', { ascending: false });
-        filesData = data || [];
-      }
-
-      // 3. Fetch metadata from Filecoin (due dates stored here)
-      const fcMetadata = {};
-      let onChainSets = [];
-      if (synapseReady) {
-        try {
-          const synapse = FilecoinService.getSynapse();
-          const storage = synapse.storage;
-          onChainSets = await storage.findDataSets({ source: 'deadlineguard' });
-          
-          for (const ds of (onChainSets || [])) {
-            const metadata = ds.metadata || {};
-            
-            // Map by fileName AND by pieceCid
-            if (metadata.fileName) {
-              fcMetadata[metadata.fileName] = metadata;
-            }
-            if (metadata.pieceCid) {
-              fcMetadata[metadata.pieceCid] = metadata;
-            }
-            
-            console.log('[AgentActivity] Filecoin metadata:', metadata);
-          }
-        } catch (e) {
-          console.warn('[AgentActivity] Filecoin fetch:', e.message);
-        }
-      }
-      
-      setOnChainDataSets(onChainSets);
-      setFilecoinMetadata(fcMetadata);
-
-      // 4. Merge files with Filecoin metadata for due dates
-      const now = Date.now();
-      const mergedFiles = filesData.map(file => {
-        const fcMeta = fcMetadata[file.file_name] || fcMetadata[file.piece_cid] || {};
-        
-        // Due date priority: Filecoin metadata > Supabase assignments
-        const dueDate = fcMeta.dueDate || file.assignments?.due_date || null;
-        const courseName = fcMeta.courseName || file.courses?.name || null;
-        const assignmentTitle = fcMeta.assignmentTitle || file.assignments?.title || null;
-        const gradeWeight = fcMeta.gradeWeight || file.assignments?.grade_weight || null;
-        
-        const daysUntilDue = dueDate 
-          ? Math.floor((new Date(dueDate).getTime() - now) / (1000 * 60 * 60 * 24))
-          : null;
-
-        return {
-          ...file,
-          dueDate,
-          daysUntilDue,
-          isDueSoon: daysUntilDue !== null && daysUntilDue <= 7 && daysUntilDue >= 0,
-          isOverdue: daysUntilDue !== null && daysUntilDue < 0,
-          courseName,
-          assignmentTitle,
-          gradeWeight,
-          metadataSource: fcMeta.dueDate ? 'Filecoin' : (file.assignments?.due_date ? 'Supabase' : 'None'),
-        };
-      });
-
-      setUploadedFiles(mergedFiles);
-      console.log('[AgentActivity] Merged files with due dates:', mergedFiles.length);
-
+      if (error) throw error;
+      setActivities(data || []);
     } catch (err) {
       console.error('[AgentActivity] Fetch failed:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [wallet, synapseReady]);
+  }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchActivities();
+  }, [fetchActivities]);
 
-  // Auto-generate AI summary
+  // Auto generate AI summary
   useEffect(() => {
-    if (activities.length > 0 || uploadedFiles.length > 0) {
-      generateAiSummary();
-    }
-  }, [activities.length, uploadedFiles.length]);
+    if (activities.length > 0) generateAiSummary();
+  }, [activities.length]);
 
   const generateAiSummary = async () => {
     setAiLoading(true);
     setAiSummary(null);
-
     try {
-      const dueSoon = uploadedFiles.filter(f => f.isDueSoon);
-      const overdue = uploadedFiles.filter(f => f.isOverdue);
-
       const context = {
         totalActions: activities.length,
-        totalFiles: uploadedFiles.length,
-        dueSoon: dueSoon.length,
-        overdue: overdue.length,
         protectActions: activities.filter(a => a.action_type === 'PROTECT').length,
         archiveActions: activities.filter(a => a.action_type === 'ARCHIVE').length,
         alertActions: activities.filter(a => a.action_type === 'ALERT').length,
+        deleteActions: activities.filter(a => a.action_type === 'DELETE').length,
         balance: balance || 0,
         availableForStorage: availableForStorage || 0,
-        depositedBalance: depositedBalance || 0,
-        onChainDataSets: onChainDataSets.length,
       };
-
       const report = await generateGroqReport(context, 'agent_activity_summary');
       setAiSummary(report);
     } catch (err) {
-      console.warn('[AgentActivity] AI summary failed:', err.message);
+      console.warn('[AgentActivity] AI summary failed', err);
       setAiSummary(null);
     } finally {
       setAiLoading(false);
@@ -201,26 +103,119 @@ const AgentActivityPage = () => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchData();
+    await fetchActivities();
     setRefreshing(false);
   };
 
-  const formatTime = (dateStr) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMins = Math.floor((now - date) / (1000 * 60));
-    
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} min ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays}d ago`;
+  // Helper to delete a single file from Filecoin + Supabase
+  const deleteFileRecord = async (file) => {
+    try {
+      // Try Filecoin deletion
+      try {
+        const synapse = FilecoinService.getSynapse();
+        if (synapse?.storage) {
+          const storage = synapse.storage;
+          const methods = ['terminateService', 'schedulePieceRemoval', 'delete', 'removePiece'];
+          for (const method of methods) {
+            if (typeof storage[method] === 'function') {
+              try {
+                await storage[method]({ pieceCid: file.piece_cid });
+                break;
+              } catch (e) {
+                console.warn(`[Delete] ${method} failed:`, e.message);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Delete] Filecoin deletion error:', e.message);
+      }
+
+      // Delete from Supabase
+      await supabase.from('files').delete().eq('id', file.id);
+
+      // Log agent action
+      await supabase.from('agent_actions').insert({
+        user_id: file.user_id,
+        action_type: 'DELETE',
+        description: `Deleted ${file.file_name}`,
+        file_id: file.id,
+      });
+
+      return true;
+    } catch (err) {
+      console.error('[BulkDelete] Failed for', file.file_name, err);
+      return false;
+    }
   };
 
-  const formatExactDate = (dateStr) => {
-    if (!dateStr) return 'No due date';
-    return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const handleDeleteOverdueNotSubmitted = async () => {
+    if (!wallet) {
+      setBulkMessage('Connect wallet first');
+      return;
+    }
+    if (!window.confirm('Delete all overdue files that are not submitted/completed?')) return;
+
+    setBulkDeleting(true);
+    setBulkMessage(null);
+    try {
+      const now = new Date();
+      const { data: files } = await supabase
+        .from('files')
+        .select('*')
+        .eq('wallet_address', wallet)
+        .not('piece_cid', 'is', null)
+        .not('status', 'eq', 'completed')
+        .not('status', 'eq', 'protected')
+        .lte('due_date', now.toISOString());
+
+      let deleted = 0;
+      for (const file of files || []) {
+        const success = await deleteFileRecord(file);
+        if (success) deleted++;
+      }
+
+      setBulkMessage(`Deleted ${deleted} overdue file(s)`);
+      await fetchActivities();
+    } catch (err) {
+      console.error('[BulkDelete] Overdue failed:', err);
+      setBulkMessage('Bulk delete failed: ' + err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const handleDeleteCompleted = async () => {
+    if (!wallet) {
+      setBulkMessage('Connect wallet first');
+      return;
+    }
+    if (!window.confirm('Delete all completed files?')) return;
+
+    setBulkDeleting(true);
+    setBulkMessage(null);
+    try {
+      const { data: files } = await supabase
+        .from('files')
+        .select('*')
+        .eq('wallet_address', wallet)
+        .not('piece_cid', 'is', null)
+        .eq('status', 'completed');
+
+      let deleted = 0;
+      for (const file of files || []) {
+        const success = await deleteFileRecord(file);
+        if (success) deleted++;
+      }
+
+      setBulkMessage(`Deleted ${deleted} completed file(s)`);
+      await fetchActivities();
+    } catch (err) {
+      console.error('[BulkDelete] Completed failed:', err);
+      setBulkMessage('Bulk delete failed: ' + err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
   };
 
   if (loading) {
@@ -231,15 +226,14 @@ const AgentActivityPage = () => {
     );
   }
 
-  const dueSoonFiles = uploadedFiles.filter(f => f.isDueSoon);
-  const overdueFiles = uploadedFiles.filter(f => f.isOverdue);
-
+  // Stats
   const stats = {
     total: activities.length,
     protect: activities.filter(a => a.action_type === 'PROTECT').length,
     archive: activities.filter(a => a.action_type === 'ARCHIVE').length,
     alert: activities.filter(a => a.action_type === 'ALERT').length,
     verify: activities.filter(a => a.action_type === 'VERIFY').length,
+    delete: activities.filter(a => a.action_type === 'DELETE').length,
   };
 
   return (
@@ -249,68 +243,39 @@ const AgentActivityPage = () => {
           <Activity className="h-6 w-6 text-shamrock" /> Agent Activity
         </h1>
         <button onClick={handleRefresh} disabled={refreshing} className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 py-2 text-sm text-gray-300 hover:bg-shamrock-darker/30 transition-colors disabled:opacity-50">
-          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> Refresh
+          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+          Refresh
         </button>
       </div>
 
-      {/* Context Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-          <p className="text-sm text-gray-500">Files Monitored</p>
-          <p className="text-2xl font-bold text-white">{uploadedFiles.length}</p>
+      {/* Bulk actions */}
+      <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
+        <h3 className="text-lg font-semibold text-white mb-3">Bulk Agent Actions</h3>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleDeleteOverdueNotSubmitted}
+            disabled={bulkDeleting || !wallet}
+            className="inline-flex items-center gap-2 rounded-md bg-red-500/20 text-red-400 px-4 py-2 text-sm font-medium hover:bg-red-500/30 disabled:opacity-50"
+          >
+            <Trash2 size={16} />
+            Delete Overdue & Not Submitted
+          </button>
+          <button
+            onClick={handleDeleteCompleted}
+            disabled={bulkDeleting || !wallet}
+            className="inline-flex items-center gap-2 rounded-md bg-green-500/20 text-green-400 px-4 py-2 text-sm font-medium hover:bg-green-500/30 disabled:opacity-50"
+          >
+            <CheckCircle size={16} />
+            Delete Completed Files
+          </button>
         </div>
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-yellow-500/50 p-4">
-          <p className="text-sm text-yellow-500">Due Soon</p>
-          <p className="text-2xl font-bold text-yellow-400">{dueSoonFiles.length}</p>
-        </div>
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-red-500/50 p-4">
-          <p className="text-sm text-red-500">Overdue</p>
-          <p className="text-2xl font-bold text-red-400">{overdueFiles.length}</p>
-        </div>
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-          <p className="text-sm text-gray-500">On-Chain Sets</p>
-          <p className="text-2xl font-bold text-shamrock">{onChainDataSets.length}</p>
-        </div>
+        {bulkDeleting && (
+          <p className="text-sm text-gray-400 mt-2 flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Deleting...
+          </p>
+        )}
+        {bulkMessage && <p className="text-sm text-gray-300 mt-2">{bulkMessage}</p>}
       </div>
-
-      {/* Due Soon Files */}
-      {(dueSoonFiles.length > 0 || overdueFiles.length > 0) && (
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Deadline Alerts</h2>
-          <div className="space-y-3">
-            {overdueFiles.map((file) => (
-              <div key={file.id} className="p-3 rounded-lg bg-red-500/10 border border-red-500/30">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-red-400" />
-                  <p className="text-sm font-medium text-white">{file.file_name}</p>
-                  <span className="text-xs text-red-400 font-bold ml-auto">
-                    OVERDUE ({Math.abs(file.daysUntilDue)} days)
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                  <Calendar className="h-3 w-3" /> Due: {formatExactDate(file.dueDate)}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">Source: {file.metadataSource}</p>
-              </div>
-            ))}
-            {dueSoonFiles.map((file) => (
-              <div key={file.id} className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-yellow-400" />
-                  <p className="text-sm font-medium text-white">{file.file_name}</p>
-                  <span className="text-xs text-yellow-400 font-bold ml-auto">
-                    DUE SOON ({file.daysUntilDue} days)
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                  <Calendar className="h-3 w-3" /> Due: {formatExactDate(file.dueDate)}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">Source: {file.metadataSource}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* AI Summary */}
       {aiSummary && (
@@ -322,29 +287,12 @@ const AgentActivityPage = () => {
         </div>
       )}
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4 text-center">
-          <p className="text-xs text-gray-500">Total Actions</p>
-          <p className="text-2xl font-bold text-white">{stats.total}</p>
+      {aiLoading && (
+        <div className="flex items-center gap-2 text-gray-400 justify-center py-4">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span className="text-sm">Generating AI summary...</span>
         </div>
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4 text-center">
-          <p className="text-xs text-gray-500">Protected</p>
-          <p className="text-2xl font-bold text-green-400">{stats.protect}</p>
-        </div>
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4 text-center">
-          <p className="text-xs text-gray-500">Archived</p>
-          <p className="text-2xl font-bold text-gray-400">{stats.archive}</p>
-        </div>
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4 text-center">
-          <p className="text-xs text-gray-500">Alerts</p>
-          <p className="text-2xl font-bold text-red-400">{stats.alert}</p>
-        </div>
-        <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4 text-center">
-          <p className="text-xs text-gray-500">Verified</p>
-          <p className="text-2xl font-bold text-blue-400">{stats.verify}</p>
-        </div>
-      </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -383,7 +331,9 @@ const AgentActivityPage = () => {
                     )}
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="text-xs text-gray-500">{formatTime(action.created_at)}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(action.created_at).toLocaleTimeString()}
+                    </p>
                   </div>
                 </div>
               );
@@ -408,8 +358,8 @@ const AgentActivityPage = () => {
           <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full flex items-center gap-1">
             <CheckCircle className="h-3 w-3" /> Verifies storage
           </span>
-          <span className="px-2 py-1 bg-shamrock/20 text-shamrock rounded-full flex items-center gap-1">
-            <Brain className="h-3 w-3" /> AI analysis
+          <span className="px-2 py-1 bg-purple-500/20 text-purple-400 rounded-full flex items-center gap-1">
+            <Trash2 className="h-3 w-3" /> Deletes completed/overdue files
           </span>
         </div>
       </div>
