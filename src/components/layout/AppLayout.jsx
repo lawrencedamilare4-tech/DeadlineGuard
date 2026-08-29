@@ -28,6 +28,7 @@ const AppLayout = () => {
   const { user } = useSupabase();
   const navigate = useNavigate();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false); // ✅ loader state
 
   // RainbowKit/wagmi hooks
   const { address, isConnected } = useAccount();
@@ -45,26 +46,41 @@ const AppLayout = () => {
   useFilecoinChain();
 
   const handleSignOut = async () => {
-    disconnect();
-    await signOut();
+    setSigningOut(true); // Show loader immediately
 
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (
-        key.startsWith('wagmi') ||
-        key.startsWith('wc@') ||
-        key.startsWith('rainbow') ||
-        key.includes('supabase') ||
-        key === 'deadlineguard_wallet'
-      ) {
-        keysToRemove.push(key);
+    try {
+      // Disconnect wallet
+      disconnect();
+
+      // Sign out from Supabase
+      await signOut();
+
+      // Clear all relevant localStorage keys
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (
+          key.startsWith('wagmi') ||
+          key.startsWith('wc@') ||
+          key.startsWith('rainbow') ||
+          key.includes('supabase') ||
+          key === 'deadlineguard_wallet'
+        ) {
+          keysToRemove.push(key);
+        }
       }
-    }
-    keysToRemove.forEach((key) => localStorage.removeItem(key));
+      keysToRemove.forEach((key) => localStorage.removeItem(key));
 
-    if (disconnectWallet) disconnectWallet();
-    navigate('/login', { replace: true });
+      // Reset custom Filecoin context
+      if (disconnectWallet) disconnectWallet();
+
+      // Navigate after all cleanup
+      navigate('/login', { replace: true });
+    } catch (err) {
+      console.error('Logout failed:', err);
+    } finally {
+      setSigningOut(false); // Hide loader
+    }
   };
 
   const navItems = [
@@ -84,6 +100,14 @@ const AppLayout = () => {
 
   return (
     <div className="min-h-screen bg-shamrock-darkest">
+      {/* Full‑screen logout loader */}
+      {signingOut && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-shamrock-darkest/95 backdrop-blur-sm">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-shamrock border-t-transparent" />
+          <p className="mt-4 text-sm text-gray-300">Signing out...</p>
+        </div>
+      )}
+
       {/* Top bar */}
       <header className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between border-b border-shamrock-darker/40 bg-shamrock-darkest/95 px-4 md:px-6 backdrop-blur">
         <div className="flex items-center gap-2">
@@ -95,7 +119,7 @@ const AppLayout = () => {
             <Menu size={24} />
           </button>
           <Cloud className="h-6 w-6 text-shamrock" />
-          <span className="text-lg font-semibold tracking-wide text-white">DEADLINEGUARD</span>
+          <span className="max-sm:text-xs text-lg font-semibold tracking-wide text-white">DEADLINEGUARD</span>
         </div>
 
         <div className="flex items-center gap-2 md:gap-4">
@@ -126,7 +150,8 @@ const AppLayout = () => {
 
           <button
             onClick={handleSignOut}
-            className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 md:px-4 py-2 max-sm:text-xs text-sm font-medium text-gray-300 transition-colors hover:bg-shamrock-darker/30"
+            disabled={signingOut}
+            className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 md:px-4 py-2 max-sm:text-xs text-sm font-medium text-gray-300 transition-colors hover:bg-shamrock-darker/30 disabled:opacity-50"
           >
             <LogOut size={16} />
           </button>
