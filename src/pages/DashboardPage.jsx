@@ -46,6 +46,11 @@ const DashboardPage = () => {
       if (typeof refreshPaymentStatus === 'function') {
         await refreshPaymentStatus();
       }
+
+      // Reload the page after 1.5 seconds to reflect updated balances
+       setTimeout(() => {
+      window.location.reload();
+    }, 1500);
       
       // Clear success message after 5 seconds
       setTimeout(() => setFundSuccess(false), 5000);
@@ -291,51 +296,7 @@ const DashboardPage = () => {
           </div>
 
           {/* Fund Wallet */}
-          <div className="pt-4 mb-4 border-t border-gray-200 dark:border-shamrock-darker">
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
-              Fund your wallet with tUSDFC for storage payments:
-            </p>
-            <div className="flex gap-3 items-center">
-              <input
-                type="number"
-                value={fundAmount}
-                onChange={(e) => setFundAmount(Math.max(1, Number(e.target.value)))}
-                min="1"
-                max="100"
-                className="w-24 px-3 py-2 border border-gray-300 dark:border-shamrock-darker rounded-md bg-white dark:bg-shamrock-darker text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-shamrock"
-              />
-              <button
-                onClick={handleFundWallet}
-                disabled={funding || !synapseReady}
-                className="inline-flex items-center gap-2 rounded-md bg-shamrock px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-shamrock-dark disabled:opacity-50"
-              >
-                {funding ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Funding...
-                  </>
-                ) : (
-                  'Fund Wallet'
-                )}
-              </button>
-            </div>
-
-            {/* Funding Success */}
-            {fundSuccess && (
-              <p className="mt-3 text-green-500 text-sm flex items-center gap-1">
-                <Check size={16} className="text-green-400" /> Wallet funded successfully! Balance refreshed.
-              </p>
-            )}
-
-            {/* Funding Error */}
-            {fundError && (
-              <p className="mt-3 text-red-600 text-sm">{fundError}</p>
-            )}
-
-            <p className="text-xs text-gray-500 mt-2">
-              This deposits tUSDFC to the Filecoin Payments contract for storage.
-            </p>
-          </div>
+      
           
 
           {/* Weather Hero */}
