@@ -21,7 +21,7 @@ const PaymentsPage = () => {
     
     try {
       if (!synapseReady) {
-        setError('Synapse not initialized. Please connect your wallet.');
+        setError('Synapse not initialized yet.');
         setLoading(false);
         return;
       }
