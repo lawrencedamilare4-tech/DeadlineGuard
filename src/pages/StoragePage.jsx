@@ -25,7 +25,7 @@ const StoragePage = () => {
   const [previewImageUrl, setPreviewImageUrl] = useState(null);
   const [previewType, setPreviewType] = useState(null);
   const [markingDone, setMarkingDone] = useState(null);
-  const [showMarkDoneConfirm, setShowMarkDoneConfirm] = useState(null); // <-- new
+  const [showMarkDoneConfirm, setShowMarkDoneConfirm] = useState(null);
 
   const fetchFiles = useCallback(async () => {
     setLoading(true);
@@ -235,11 +235,16 @@ const StoragePage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header with wrap */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <Cloud className="h-6 w-6 text-shamrock" /> Storage
         </h1>
-        <button onClick={handleRefresh} disabled={refreshing} className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 py-2 text-sm text-gray-300 hover:bg-shamrock-darker/30 transition-colors">
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 py-2 text-sm text-gray-300 hover:bg-shamrock-darker/30 transition-colors disabled:opacity-50"
+        >
           <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> Refresh
         </button>
       </div>
@@ -256,7 +261,10 @@ const StoragePage = () => {
             <span className="text-sm text-gray-400">{formatBytes(totalStorageUsed)} / {formatBytes(storageCapacity)}</span>
           </div>
           <div className="w-full bg-gray-200 dark:bg-shamrock-darker rounded-full h-4">
-            <div className={`h-4 rounded-full transition-all duration-500 ${storagePercentage > 90 ? 'bg-red-500' : 'bg-shamrock'}`} style={{ width: `${storagePercentage}%` }} />
+            <div
+              className={`h-4 rounded-full transition-all duration-500 ${storagePercentage > 90 ? 'bg-red-500' : 'bg-shamrock'}`}
+              style={{ width: `${storagePercentage}%` }}
+            />
           </div>
         </div>
       )}
@@ -270,77 +278,134 @@ const StoragePage = () => {
       ) : (
         <div className="space-y-3">
           {files.map((file) => (
-            <div key={file.id} className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1">
-                  <div className={`p-2 rounded-lg shrink-0 ${file.isCompleted ? 'bg-green-500/20' : file.isOverdue ? 'bg-red-500/20' : file.isDueSoon ? 'bg-yellow-500/20' : 'bg-shamrock/20'}`}>
-                    {file.isCompleted ? (
-                      <CheckCircle className="h-5 w-5 text-green-400" />
-                    ) : file.isOverdue ? (
-                      <AlertTriangle className="h-5 w-5 text-red-400" />
-                    ) : file.isDueSoon ? (
-                      <Clock className="h-5 w-5 text-yellow-400" />
-                    ) : (
-                      <FileText className="h-5 w-5 text-shamrock" />
-                    )}
-                  </div>
-
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-white text-lg">{file.file_name}</p>
-                      {file.isCompleted && (
-                        <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400 font-semibold">
-                          COMPLETED
-                        </span>
-                      )}
-                    </div>
-
-                    {file.courseName && <div className="text-xs text-gray-400 mt-1">{file.courseName}</div>}
-                    {file.assignmentTitle && <div className="text-xs text-gray-500">{file.assignmentTitle}</div>}
-
-                    {file.dueDate && (
-                      <div className={`mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold ${file.isCompleted ? 'bg-green-500/10 text-green-400' : file.isOverdue ? 'bg-red-500/20 text-red-400' : file.isDueSoon ? 'bg-yellow-500/20 text-yellow-400' : 'bg-shamrock/10 text-shamrock'}`}>
-                        <Calendar className="h-4 w-4" />
-                        <span>Due: {formatExactDate(file.dueDate)}</span>
-                        {!file.isCompleted && file.daysUntilDue !== null && file.daysUntilDue >= 0 && <span className="text-xs">({file.daysUntilDue} days)</span>}
-                        {!file.isCompleted && file.isOverdue && <span className="text-xs font-bold">({Math.abs(file.daysUntilDue)} days overdue!)</span>}
-                      </div>
-                    )}
-
-                    <div className="mt-2 flex items-center gap-3">
-                      <span className="text-xs font-mono text-green-400">{String(file.piece_cid || 'No CID').slice(0, 25)}...</span>
-                      {file.piece_cid && (
-                        <button onClick={() => copyCid(file.piece_cid)} className="text-gray-400 hover:text-shamrock">
-                          {copiedCid === String(file.piece_cid) ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                        </button>
-                      )}
-                      <span className="text-xs text-gray-400">{formatBytes(file.file_size)}</span>
-                    </div>
-                  </div>
+            <div
+              key={file.id}
+              className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4 flex flex-col sm:flex-row sm:items-start gap-4"
+            >
+              {/* Left: Icon + File Info */}
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div
+                  className={`p-2 rounded-lg shrink-0 ${
+                    file.isCompleted
+                      ? 'bg-green-500/20'
+                      : file.isOverdue
+                      ? 'bg-red-500/20'
+                      : file.isDueSoon
+                      ? 'bg-yellow-500/20'
+                      : 'bg-shamrock/20'
+                  }`}
+                >
+                  {file.isCompleted ? (
+                    <CheckCircle className="h-5 w-5 text-green-400" />
+                  ) : file.isOverdue ? (
+                    <AlertTriangle className="h-5 w-5 text-red-400" />
+                  ) : file.isDueSoon ? (
+                    <Clock className="h-5 w-5 text-yellow-400" />
+                  ) : (
+                    <FileText className="h-5 w-5 text-shamrock" />
+                  )}
                 </div>
 
-                <div className="shrink-0 flex flex-col gap-2">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowMarkDoneConfirm(file)}
-                      disabled={file.isCompleted || markingDone === file.id}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-green-500 text-green-400 text-xs font-medium hover:bg-green-500/10 disabled:opacity-50"
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-white text-lg truncate max-w-full">{file.file_name}</p>
+                    {file.isCompleted && (
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400 font-semibold">
+                        COMPLETED
+                      </span>
+                    )}
+                  </div>
+
+                  {file.courseName && <div className="text-xs text-gray-400 mt-1">{file.courseName}</div>}
+                  {file.assignmentTitle && <div className="text-xs text-gray-500">{file.assignmentTitle}</div>}
+
+                  {file.dueDate && (
+                    <div
+                      className={`mt-2 flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold ${
+                        file.isCompleted
+                          ? 'bg-green-500/10 text-green-400'
+                          : file.isOverdue
+                          ? 'bg-red-500/20 text-red-400'
+                          : file.isDueSoon
+                          ? 'bg-yellow-500/20 text-yellow-400'
+                          : 'bg-shamrock/10 text-shamrock'
+                      }`}
                     >
-                      {markingDone === file.id ? <Loader2 className="h-3 w-3 animate-spin" /> : file.isCompleted ? <Check className="h-3 w-3" /> : <CheckCircle className="h-3 w-3" />}
-                      {file.isCompleted ? 'Done' : 'Mark Done'}
-                    </button>
+                      <Calendar className="h-4 w-4 shrink-0" />
+                      <span>Due: {formatExactDate(file.dueDate)}</span>
+                      {!file.isCompleted && file.daysUntilDue !== null && file.daysUntilDue >= 0 && (
+                        <span className="text-xs">({file.daysUntilDue} days)</span>
+                      )}
+                      {!file.isCompleted && file.isOverdue && (
+                        <span className="text-xs font-bold">({Math.abs(file.daysUntilDue)} days overdue!)</span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mt-2 flex items-center gap-3 flex-wrap">
+                    <span className="text-xs font-mono text-green-400 max-w-[200px] truncate">
+                      {String(file.piece_cid || 'No CID').slice(0, 25)}...
+                    </span>
+                    {file.piece_cid && (
+                      <button onClick={() => copyCid(file.piece_cid)} className="text-gray-400 hover:text-shamrock">
+                        {copiedCid === String(file.piece_cid) ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
+                    <span className="text-xs text-gray-400">{formatBytes(file.file_size)}</span>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleDownload(file)} disabled={downloadingFile === file.id} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-shamrock text-white text-xs font-medium hover:bg-shamrock-dark disabled:opacity-50">
-                      {downloadingFile === file.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-                    </button>
-                    <button onClick={() => handleView(file)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-shamrock text-shamrock text-xs font-medium hover:bg-shamrock/10">
-                      <Eye className="h-3 w-3" />
-                    </button>
-                    <button onClick={() => setShowDeleteConfirm(file)} disabled={deletingFile === file.id} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-red-500 text-red-400 text-xs font-medium hover:bg-red-500/10 disabled:opacity-50">
-                      {deletingFile === file.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                    </button>
-                  </div>
+                </div>
+              </div>
+
+              {/* Right: Actions */}
+              <div className="flex flex-row sm:flex-col gap-2 flex-wrap sm:flex-nowrap sm:items-end">
+                <button
+                  onClick={() => setShowMarkDoneConfirm(file)}
+                  disabled={file.isCompleted || markingDone === file.id}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-green-500 text-green-400 text-xs font-medium hover:bg-green-500/10 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {markingDone === file.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : file.isCompleted ? (
+                    <Check className="h-3 w-3" />
+                  ) : (
+                    <CheckCircle className="h-3 w-3" />
+                  )}
+                  {file.isCompleted ? 'Done' : 'Mark Done'}
+                </button>
+
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => handleDownload(file)}
+                    disabled={downloadingFile === file.id}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-shamrock text-white text-xs font-medium hover:bg-shamrock-dark disabled:opacity-50"
+                  >
+                    {downloadingFile === file.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Download className="h-3 w-3" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleView(file)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-shamrock text-shamrock text-xs font-medium hover:bg-shamrock/10"
+                  >
+                    <Eye className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(file)}
+                    disabled={deletingFile === file.id}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-red-500 text-red-400 text-xs font-medium hover:bg-red-500/10 disabled:opacity-50"
+                  >
+                    {deletingFile === file.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3 w-3" />
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
@@ -355,7 +420,7 @@ const StoragePage = () => {
             <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-400" /> Mark as Completed?
             </h3>
-            <p className="text-sm text-gray-400 mb-4">
+            <p className="text-sm text-gray-400 mb-4 break-words">
               Are you sure you want to mark <span className="text-white font-semibold">{showMarkDoneConfirm.file_name}</span> as completed?
               <br />
               <span className="text-xs text-gray-500">This will make it an archive candidate.</span>
@@ -391,7 +456,7 @@ const StoragePage = () => {
             <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
               <Trash2 className="h-5 w-5 text-red-400" /> Delete File?
             </h3>
-            <p className="text-sm text-gray-400 mb-4">
+            <p className="text-sm text-gray-400 mb-4 break-words">
               Delete <span className="text-white font-semibold">{showDeleteConfirm.file_name}</span>?
             </p>
             <div className="flex gap-3 justify-end">
@@ -414,8 +479,19 @@ const StoragePage = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-shamrock-darkest rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-shamrock-darker">
-              <h3 className="text-lg font-semibold text-white">{viewingFile.file_name}</h3>
-              <button onClick={() => { setViewingFile(null); setDownloadedContent(null); setPreviewText(null); setPreviewImageUrl(null); setPreviewType(null); }} className="text-gray-400 hover:text-white"><X className="h-5 w-5" /></button>
+              <h3 className="text-lg font-semibold text-white truncate">{viewingFile.file_name}</h3>
+              <button
+                onClick={() => {
+                  setViewingFile(null);
+                  setDownloadedContent(null);
+                  setPreviewText(null);
+                  setPreviewImageUrl(null);
+                  setPreviewType(null);
+                }}
+                className="text-gray-400 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
             <div className="p-4 overflow-y-auto flex-1">
               {previewType === 'image' && previewImageUrl ? (
@@ -426,15 +502,34 @@ const StoragePage = () => {
                 <div className="text-center py-8">
                   <FileType className="h-16 w-16 text-red-400 mx-auto mb-3" />
                   <p className="text-white font-semibold">PDF Document</p>
-                  <button onClick={() => handleDownload(viewingFile)} className="mt-4 inline-flex items-center gap-2 rounded-md bg-shamrock px-4 py-2 text-sm text-white"><Download className="h-4 w-4" /> Download</button>
+                  <button
+                    onClick={() => handleDownload(viewingFile)}
+                    className="mt-4 inline-flex items-center gap-2 rounded-md bg-shamrock px-4 py-2 text-sm text-white"
+                  >
+                    <Download className="h-4 w-4" /> Download
+                  </button>
                 </div>
               ) : downloadedContent ? (
                 <div className="text-center py-8">
                   <FileText className="h-16 w-16 text-gray-500 mx-auto mb-3" />
-                  <button onClick={() => { const url = URL.createObjectURL(downloadedContent); const a = document.createElement('a'); a.href = url; a.download = viewingFile.file_name; a.click(); URL.revokeObjectURL(url); }} className="mt-3 inline-flex items-center gap-2 rounded-md bg-shamrock px-4 py-2 text-sm text-white"><Download className="h-4 w-4" /> Download</button>
+                  <button
+                    onClick={() => {
+                      const url = URL.createObjectURL(downloadedContent);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = viewingFile.file_name;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="mt-3 inline-flex items-center gap-2 rounded-md bg-shamrock px-4 py-2 text-sm text-white"
+                  >
+                    <Download className="h-4 w-4" /> Download
+                  </button>
                 </div>
               ) : (
-                <div className="text-center py-8"><Loader2 className="h-8 w-8 text-shamrock animate-spin mx-auto" /></div>
+                <div className="text-center py-8">
+                  <Loader2 className="h-8 w-8 text-shamrock animate-spin mx-auto" />
+                </div>
               )}
             </div>
           </div>

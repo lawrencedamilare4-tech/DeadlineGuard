@@ -143,6 +143,9 @@ const ForecastPage = () => {
   useEffect(() => {
     if (synapseReady) {
       fetchOnChainForecast();
+    } else {
+      setLoading(false);
+      setError('Synapse not initialized. Please connect your wallet.');
     }
   }, [fetchOnChainForecast, synapseReady]);
 
@@ -220,13 +223,13 @@ const ForecastPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <Cloud className="h-6 w-6 text-shamrock" /> 7-Day Forecast
         </h1>
         <button
           onClick={handleRefresh}
-          disabled={refreshing}
+          disabled={refreshing || !synapseReady}
           className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 py-2 text-sm text-gray-300 hover:bg-shamrock-darker/30 transition-colors disabled:opacity-50"
         >
           <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
@@ -242,7 +245,7 @@ const ForecastPage = () => {
       )}
 
       {/* Real On-Chain Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-4">
           <p className="text-xs text-gray-500 flex items-center gap-1">
             <TrendingDown className="h-3 w-3" /> Available

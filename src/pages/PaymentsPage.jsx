@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { FilecoinService } from '../services/filecoin';
 import { useFilecoin } from '../contexts/FilecoinContext';
 import { supabase } from '../services/supabase/client';
-import { ethers } from 'ethers';
 import { 
   Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown, Clock, 
   FileText, CheckCircle, AlertTriangle, Database, HardDrive
@@ -132,6 +131,9 @@ const PaymentsPage = () => {
   useEffect(() => {
     if (synapseReady) {
       fetchOnChainPayments();
+    } else {
+      setLoading(false);
+      setError('Synapse not initialized. Please connect your wallet.');
     }
   }, [fetchOnChainPayments, synapseReady]);
 
@@ -175,13 +177,13 @@ const PaymentsPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <Wallet className="h-6 w-6 text-shamrock" /> Payments
         </h1>
         <button
           onClick={handleRefresh}
-          disabled={refreshing}
+          disabled={refreshing || !synapseReady}
           className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 py-2 text-sm text-gray-300 hover:bg-shamrock-darker/30 transition-colors disabled:opacity-50"
         >
           <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
@@ -203,7 +205,7 @@ const PaymentsPage = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* MetaMask Balance */}
         <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
           <div className="flex items-center gap-2 mb-2">
