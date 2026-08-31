@@ -22,7 +22,7 @@ const SettingsPage = () => {
     connectWallet, 
     fundWallet,
     refreshPaymentStatus,
-    disconnectWallet 
+    disconnectWallet,
   } = useFilecoin();
   
   const [fundAmount, setFundAmount] = useState(10);
@@ -194,16 +194,6 @@ const SettingsPage = () => {
               <p className="text-xs text-gray-500 mt-2">
                 This deposits tUSDFC to the Filecoin Payments contract for storage.
               </p>
-            </div>
-
-            {/* Disconnect */}
-            <div className="pt-4 border-t border-gray-200 dark:border-shamrock-darker">
-              <button
-                onClick={disconnectWallet}
-                className="text-sm text-red-500 hover:text-red-600"
-              >
-                Disconnect Wallet
-              </button>
             </div>
           </div>
         )}
