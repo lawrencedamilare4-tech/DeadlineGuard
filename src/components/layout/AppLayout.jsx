@@ -75,7 +75,7 @@ const AppLayout = () => {
       if (disconnectWallet) disconnectWallet();
 
       // Navigate after all cleanup
-      navigate('/login', { replace: true });
+      navigate('/', { replace: true });
     } catch (err) {
       console.error('Logout failed:', err);
     } finally {

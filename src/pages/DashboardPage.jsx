@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
+import SynapseStatusCard from '../components/dashboard/SynapseStatusCard';
 
 const DashboardPage = () => {
   const {
@@ -289,6 +290,7 @@ const DashboardPage = () => {
                 </span>
               )}
             </div>
+            <SynapseStatusCard />
             <button onClick={handleRefresh} disabled={refreshing} className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 py-2 text-sm text-gray-300 hover:bg-shamrock-darker/30 transition-colors disabled:opacity-50">
               <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
               Refresh

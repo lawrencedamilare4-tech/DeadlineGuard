@@ -8,6 +8,7 @@ import {
 import Navbar from '../layout/Navbar';
 import StormSimulation from '../storm/StormSimulation';
 import { COLORS, FONT_DISPLAY, FONT_MONO, FONT_BODY, PIECE_CID, PROOF_ITEMS, FORECAST, PIPELINE, WEATHER } from '../../utils/constants';
+import { useNavigate } from 'react-router-dom';
 
 const EASE = [0.2, 0.7, 0.2, 1];
 
@@ -271,6 +272,7 @@ function SectionLabel({ index, total, title }) {
 }
 
 export function Hero() {
+  const navigate = useNavigate();
   return (
     <section id="top" className="relative dg-grid-bg" style={{ background: COLORS.canvas }}>
       <div
@@ -302,6 +304,7 @@ export function Hero() {
           </motion.p>
           <motion.div variants={fadeUp} className="mt-9 flex flex-wrap items-center gap-4">
             <motion.button
+              onClick={() => navigate('/login')}
               whileHover={{ y: -1 }}
               whileTap={{ scale: 0.97 }}
               className="inline-flex items-center gap-2 px-5 py-3 text-sm font-semibold"
