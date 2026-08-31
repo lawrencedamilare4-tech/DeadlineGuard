@@ -278,24 +278,28 @@ const DashboardPage = () => {
       <div className="flex-1 px-4 py-8">
         <motion.div initial="hidden" animate="show">
           {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <span className={`h-3 w-3 rounded-full ${isConnected ? 'bg-shamrock animate-pulse' : 'bg-gray-500'}`} />
-              <span className="text-sm text-gray-300">
-                {isConnected ? 'Wallet Connected' : 'Wallet Not Connected'}
-              </span>
-              {wagmiAddress && (
-                <span className="text-sm font-mono text-gray-400">
-                  {wagmiAddress.slice(0, 6)}...{wagmiAddress.slice(-4)}
-                </span>
-              )}
-            </div>
-            <SynapseStatusCard />
-            <button onClick={handleRefresh} disabled={refreshing} className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 py-2 text-sm text-gray-300 hover:bg-shamrock-darker/30 transition-colors disabled:opacity-50">
-              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-              Refresh
-            </button>
-          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <div className="flex items-center gap-3">
+    <span className={`h-3 w-3 rounded-full ${isConnected ? 'bg-shamrock animate-pulse' : 'bg-gray-500'}`} />
+    <span className="text-sm text-gray-300">
+      {isConnected ? 'Wallet Connected' : 'Wallet Not Connected'}
+    </span>
+    {wagmiAddress && (
+      <span className="text-sm font-mono text-gray-400">
+        {wagmiAddress.slice(0, 6)}...{wagmiAddress.slice(-4)}
+      </span>
+    )}
+  </div>
+  <SynapseStatusCard />
+  <button
+    onClick={handleRefresh}
+    disabled={refreshing}
+    className="inline-flex items-center gap-2 rounded-md border border-shamrock-darker px-3 py-2 text-sm text-gray-300 hover:bg-shamrock-darker/30 transition-colors disabled:opacity-50"
+  >
+    <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+    Refresh
+  </button>
+</div>
 
           {/* Fund Wallet */}
           <div className="pt-4 mb-4 border-t border-gray-200 dark:border-shamrock-darker">
