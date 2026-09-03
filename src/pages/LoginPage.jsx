@@ -14,8 +14,9 @@ const LoginPage = () => {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [debugLog, setDebugLog] = useState([]);
+  const [connectPending, setConnectPending] = useState(false); // wallet connection pending
   const navigationAttempted = useRef(false);
-  const connectInitiated = useRef(false); // <-- flag to prevent auto-login
+  const connectInitiated = useRef(false);
 
   const { openConnectModal } = useConnectModal();
   const { address, isConnected } = useAccount();
@@ -34,13 +35,20 @@ const LoginPage = () => {
     }
   }, [user, navigate]);
 
-  // Only auto-login when user explicitly clicked Connect and wallet becomes connected
+  // Reset connectPending if connection doesn't happen within 60s
   useEffect(() => {
-    if (connectInitiated.current && isConnected && address && !loading && !user) {
-      connectInitiated.current = false; // reset flag
+    if (!connectPending) return;
+    const timer = setTimeout(() => setConnectPending(false), 60000);
+    return () => clearTimeout(timer);
+  }, [connectPending]);
+
+  // When wallet connects and we were waiting, reset pending and start auth
+  useEffect(() => {
+    if (connectPending && isConnected && address && !loading && !user) {
+      setConnectPending(false);
       handleSupabaseAuth(address);
     }
-  }, [address, isConnected, user, loading]);
+  }, [connectPending, isConnected, address, loading, user]);
 
   const handleSupabaseAuth = async (walletAddress) => {
     setLoading(true);
@@ -89,6 +97,7 @@ const LoginPage = () => {
     } else {
       // User clicked Connect – set flag and open modal
       connectInitiated.current = true;
+      setConnectPending(true); // Show overlay while wallet modal opens
       openConnectModal();
     }
   };
@@ -223,6 +232,18 @@ const LoginPage = () => {
           Filecoin Calibration testnet
         </p>
       </div>
+
+      {/* Full-page loading overlay */}
+      {(loading || connectPending) && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-shamrock mx-auto" />
+            <p className="mt-4 text-white text-base font-medium">
+              {loading ? 'Signing in…' : 'Connecting wallet…'}
+            </p>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes dg-fade-up {
