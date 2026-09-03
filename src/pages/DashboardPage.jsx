@@ -11,7 +11,7 @@ import { generateGroqReport } from '../services/ai/groqService';
 import {
   Loader2, RefreshCw, Database, HardDrive, Wallet, Lock, TrendingDown,
   FileText, Copy, CheckCircle, Brain, Send, MessageCircle, Sparkles, Cloud,
-  Calendar, AlertTriangle, Clock
+  Calendar, AlertTriangle, Clock, Check
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
@@ -42,18 +42,21 @@ const DashboardPage = () => {
     try {
       await fundWallet(fundAmount);
       setFundSuccess(true);
+
+      // Wait 5 seconds for the blockchain to process the deposit
+      await new Promise(resolve => setTimeout(resolve, 10000));
       
-      // Refresh payment status after funding
       if (typeof refreshPaymentStatus === 'function') {
         await refreshPaymentStatus();
       }
 
-      // Reload the page after 1.5 seconds to reflect updated balances
-       setTimeout(() => {
-      window.location.reload();
-    }, 1500);
-      
-      // Clear success message after 5 seconds
+      // Optionally, wait another 3 seconds and refresh again if needed
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (typeof refreshPaymentStatus === 'function') {
+        await refreshPaymentStatus();
+      }
+
+      // Clear success message after a few seconds
       setTimeout(() => setFundSuccess(false), 5000);
     } catch (err) {
       setFundError(err.message || 'Funding failed');

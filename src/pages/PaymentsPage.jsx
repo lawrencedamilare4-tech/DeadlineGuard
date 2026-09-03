@@ -2,18 +2,72 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { FilecoinService } from '../services/filecoin';
 import { useFilecoin } from '../contexts/FilecoinContext';
 import { supabase } from '../services/supabase/client';
+import { ethers } from 'ethers';
 import { 
   Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown, Clock, 
-  FileText, CheckCircle, AlertTriangle, Database, HardDrive
+  FileText, CheckCircle, AlertTriangle, Database, HardDrive, Plus, Check
 } from 'lucide-react';
 
+// Payments contract address and minimal ABI for Deposit events
+const PAYMENTS_ADDRESS = '0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0';
+const DEPOSIT_EVENT_ABI = [
+  'event Deposit(address indexed from, address indexed token, uint256 amount)'
+];
+
 const PaymentsPage = () => {
-  const { wallet, connected, synapseReady, refreshPaymentStatus, depositedBalance, availableForStorage, lockedBalance } = useFilecoin();
+  const { 
+    wallet, 
+    connected, 
+    synapseReady, 
+    refreshPaymentStatus, 
+    depositedBalance, 
+    availableForStorage, 
+    lockedBalance 
+  } = useFilecoin();
+
   const [paymentInfo, setPaymentInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [recentPayments, setRecentPayments] = useState([]);
+
+  // Helper to fetch deposit history from the blockchain
+const USDFC_ADDRESS = '0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0';
+const PAYMENTS_ADDRESS = '0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0';
+
+const ERC20_TRANSFER_ABI = [
+  'event Transfer(address indexed from, address indexed to, uint256 value)'
+];
+
+const fetchDepositHistory = useCallback(async (walletAddress) => {
+  if (!walletAddress) return [];
+
+  const provider = new ethers.JsonRpcProvider('https://api.calibration.node.glif.io/rpc/v1');
+  const usdfcContract = new ethers.Contract(USDFC_ADDRESS, ERC20_TRANSFER_ABI, provider);
+
+  // Filter transfers from user to the Payments contract
+  const filter = usdfcContract.filters.Transfer(walletAddress, PAYMENTS_ADDRESS);
+  const currentBlock = await provider.getBlockNumber();
+  const blockRange = 2500;
+  const fromBlock = Math.max(0, currentBlock - blockRange);
+  const logs = await usdfcContract.queryFilter(filter, fromBlock, currentBlock);
+
+  const deposits = [];
+  for (const log of logs) {
+    const { from, to, value } = log.args;
+    const block = await provider.getBlock(log.blockNumber);
+    deposits.push({
+      id: `deposit-${log.transactionHash}`,
+      type: 'FUNDING',
+      description: 'Deposited USDFC to storage',
+      amount: `${ethers.formatUnits(value, 18)} USDFC`,
+      date: new Date(block.timestamp * 1000).toISOString(),
+      status: 'COMPLETED',
+      txHash: log.transactionHash,
+    });
+  }
+  return deposits;
+}, []);
 
   const fetchOnChainPayments = useCallback(async () => {
     setLoading(true);
@@ -64,6 +118,7 @@ const PaymentsPage = () => {
       setPaymentInfo(info);
 
       // Fetch recent payments from Supabase (agent actions + file uploads)
+      const paymentsList = [];
       try {
         const { data: { user } } = await supabase.auth.getUser();
         
@@ -81,9 +136,6 @@ const PaymentsPage = () => {
           .in('action_type', ['ALERT', 'ARCHIVE', 'PROTECT', 'DELETE'])
           .order('created_at', { ascending: false })
           .limit(10);
-
-        // Combine and map to payment entries
-        const paymentsList = [];
 
         if (uploads) {
           for (const upload of uploads) {
@@ -111,14 +163,20 @@ const PaymentsPage = () => {
             });
           }
         }
-
-        // Sort by date
-        paymentsList.sort((a, b) => new Date(b.date) - new Date(a.date));
-        setRecentPayments(paymentsList.slice(0, 15));
-
       } catch (supabaseErr) {
         console.warn('[Payments] Supabase fetch:', supabaseErr.message);
       }
+
+      // Fetch deposit history from chain and add to list
+     if (wallet) {
+        const deposits = await fetchDepositHistory(wallet);
+        console.log('[Payments] Deposit history found:', deposits.length);
+        paymentsList.push(...deposits);
+      }
+
+      // Sort by date (newest first)
+      paymentsList.sort((a, b) => new Date(b.date) - new Date(a.date));
+      setRecentPayments(paymentsList.slice(0, 15));
 
     } catch (err) {
       console.error('[Payments] Fetch failed:', err);
@@ -126,7 +184,7 @@ const PaymentsPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [synapseReady, availableForStorage]);
+  }, [synapseReady, availableForStorage, wallet, fetchDepositHistory]);
 
   useEffect(() => {
     if (synapseReady) {
@@ -243,19 +301,19 @@ const PaymentsPage = () => {
         </div>
       </div>
 
-      {/* Recent Payments */}
+      {/* Recent Payments (includes funding history) */}
       <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker overflow-hidden">
         <div className="p-4 border-b border-gray-200 dark:border-shamrock-darker">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <HardDrive className="h-5 w-5 text-shamrock" /> Recent Storage Payments
+            <HardDrive className="h-5 w-5 text-shamrock" /> Recent Storage & Funding Payments
           </h2>
         </div>
 
         {recentPayments.length === 0 ? (
           <div className="p-8 text-center">
             <FileText className="h-12 w-12 text-gray-500 mx-auto mb-3" />
-            <p className="text-gray-400">No storage payments yet.</p>
-            <p className="text-sm text-gray-500 mt-2">Upload files to see payment history.</p>
+            <p className="text-gray-400">No payments yet.</p>
+            <p className="text-sm text-gray-500 mt-2">Upload files or fund your wallet to see history.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -279,6 +337,7 @@ const PaymentsPage = () => {
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                         payment.type === 'STORAGE' ? 'bg-shamrock/20 text-shamrock' :
+                        payment.type === 'FUNDING' ? 'bg-blue-500/20 text-blue-400' :
                         payment.type === 'ALERT' ? 'bg-red-500/20 text-red-400' :
                         payment.type === 'ARCHIVE' ? 'bg-gray-500/20 text-gray-400' :
                         payment.type === 'PROTECT' ? 'bg-green-500/20 text-green-400' :

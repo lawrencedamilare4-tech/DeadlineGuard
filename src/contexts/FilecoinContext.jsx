@@ -2,8 +2,40 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { FilecoinService } from '../services/filecoin';
 import { useAccount, useWalletClient } from 'wagmi';
 import { logger } from '../utils/logger';
+import { createPublicClient, http, erc20Abi, parseAbi } from 'viem';
+import { filecoinCalibration } from '../config/wagmi'; // adjust path
 
 const FilecoinContext = createContext(null);
+
+// Constants
+const USDFC_ADDRESS = '0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0';
+const PAYMENTS_ADDRESS = '0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0';
+const OPERATOR_ADDRESS = '0x02925630df557F957f70E112bA06e50965417CA0';
+
+const publicClient = createPublicClient({
+  chain: filecoinCalibration,
+  transport: http(),
+});
+
+// Pulls a tx hash out of whatever shape the Synapse SDK returns
+// (raw string, { hash }, { transactionHash }, { txHash }, etc.)
+const extractHash = (txResult) => {
+  if (!txResult) return null;
+  if (typeof txResult === 'string') return txResult;
+  return txResult.hash || txResult.transactionHash || txResult.txHash || null;
+};
+
+// Wait for a transaction to actually be mined. Falls back to a fixed
+// delay only if we genuinely can't find a hash to wait on.
+const waitForTx = async (txResult) => {
+  const hash = extractHash(txResult);
+  if (hash) {
+    await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+    return;
+  }
+  console.warn('[Filecoin] No tx hash found on result, falling back to delay:', txResult);
+  await new Promise((resolve) => setTimeout(resolve, 8000));
+};
 
 export const FilecoinProvider = ({ children }) => {
   const { address, isConnected } = useAccount();
@@ -64,13 +96,44 @@ export const FilecoinProvider = ({ children }) => {
       setSpendRate(status.spendRate || 0);
       setRunway(status.runway || Infinity);
       setIsFunded((status.availableForStorage || 0) > 0.13);
+      return status;
     } catch (err) {
       console.error('[Filecoin] Balance fetch failed:', err.message);
       setError(err.message);
+      return null;
     } finally {
       setLoading(false);
     }
   };
+
+  // Polls getPaymentStatus until depositedBalance actually increases past
+  // previousDeposited, or we give up. Updates state as soon as it sees the
+  // change land, rather than trusting a single fixed-delay read.
+  const pollForBalanceChange = useCallback(async (walletAddress, previousDeposited, {
+    attempts = 12,
+    intervalMs = 3000,
+  } = {}) => {
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const status = await FilecoinService.getPaymentStatus(walletAddress);
+        if ((status.depositedBalance || 0) > previousDeposited) {
+          setBalance(status.balance || 0);
+          setDepositedBalance(status.depositedBalance || 0);
+          setAvailableForStorage(status.availableForStorage || 0);
+          setLockedBalance(status.lockedBalance || 0);
+          setSpendRate(status.spendRate || 0);
+          setRunway(status.runway || Infinity);
+          setIsFunded((status.availableForStorage || 0) > 0.13);
+          return true;
+        }
+      } catch (err) {
+        console.warn('[Filecoin] Poll attempt failed:', err.message);
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    console.warn('[Filecoin] Balance never reflected deposit after polling — possible RPC replication lag.');
+    return false;
+  }, []);
 
   const initializeSynapse = async (walletAddress, walletClient) => {
     try {
@@ -90,21 +153,38 @@ export const FilecoinProvider = ({ children }) => {
       if (!synapse) throw new Error('Synapse not initialized');
       const payments = synapse.payments;
       const amountWei = BigInt(Math.floor(amount * 1e18));
+      const previousDeposited = depositedBalance || 0;
 
-      if (typeof payments.approve === 'function') {
-        await payments.approve({ token: 'USDFC', amount: amountWei });
+      // Optionally check allowance and skip approval if already sufficient
+      const allowance = await publicClient.readContract({
+        address: USDFC_ADDRESS,
+        abi: erc20Abi,
+        functionName: 'allowance',
+        args: [wallet, PAYMENTS_ADDRESS],
+      });
+
+      if (allowance < amountWei) {
+        const approveResult = await payments.approve({ token: 'USDFC', amount: amountWei });
+        await waitForTx(approveResult);
       }
-      if (typeof payments.deposit === 'function') {
-        await payments.deposit({ token: 'USDFC', amount: amountWei });
-      }
-      if (typeof payments.approveOperator === 'function') {
-        await payments.approveOperator({
-          operator: '0x02925630df557F957f70E112bA06e50965417CA0',
+
+      const depositResult = await payments.deposit({ token: 'USDFC', amount: amountWei });
+      await waitForTx(depositResult);
+
+      // Approve operator if needed (optional, catch errors)
+      try {
+        const operatorResult = await payments.approveOperator({
+          operator: OPERATOR_ADDRESS,
         });
+        await waitForTx(operatorResult);
+      } catch (e) {
+        console.warn('Operator approval skipped/failed:', e.message);
       }
 
+      // Poll until the deposited balance actually reflects the new funds,
+      // instead of trusting a single read right after the tx confirms.
       if (wallet) {
-        await fetchBalance(wallet);
+        await pollForBalanceChange(wallet, previousDeposited);
       }
       return true;
     } catch (err) {
@@ -113,7 +193,7 @@ export const FilecoinProvider = ({ children }) => {
     } finally {
       setFunding(false);
     }
-  }, [wallet]);
+  }, [wallet, depositedBalance, pollForBalanceChange]);
 
   const disconnectWallet = useCallback(() => {
     localStorage.removeItem('deadlineguard_wallet');
