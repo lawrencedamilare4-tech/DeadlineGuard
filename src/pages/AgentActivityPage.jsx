@@ -134,7 +134,7 @@ const AgentActivityPage = () => {
       // Delete from Supabase
       await supabase.from('files').delete().eq('id', file.id);
 
-      // Log agent action
+      // Log individual agent action
       await supabase.from('agent_actions').insert({
         user_id: file.user_id,
         action_type: 'DELETE',
@@ -159,6 +159,9 @@ const AgentActivityPage = () => {
     setBulkDeleting(true);
     setBulkMessage(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
+
       const now = new Date();
       const { data: files } = await supabase
         .from('files')
@@ -173,6 +176,16 @@ const AgentActivityPage = () => {
       for (const file of files || []) {
         const success = await deleteFileRecord(file);
         if (success) deleted++;
+      }
+
+      // Insert bulk summary log
+      if (deleted > 0) {
+        await supabase.from('agent_actions').insert({
+          user_id: user.id,
+          action_type: 'DELETE',
+          description: `Bulk deleted ${deleted} overdue file(s)`,
+          file_id: null,
+        });
       }
 
       setBulkMessage(`Deleted ${deleted} overdue file(s)`);
@@ -195,6 +208,9 @@ const AgentActivityPage = () => {
     setBulkDeleting(true);
     setBulkMessage(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
+
       const { data: files } = await supabase
         .from('files')
         .select('*')
@@ -206,6 +222,16 @@ const AgentActivityPage = () => {
       for (const file of files || []) {
         const success = await deleteFileRecord(file);
         if (success) deleted++;
+      }
+
+      // Insert bulk summary log
+      if (deleted > 0) {
+        await supabase.from('agent_actions').insert({
+          user_id: user.id,
+          action_type: 'DELETE',
+          description: `Bulk deleted ${deleted} completed file(s)`,
+          file_id: null,
+        });
       }
 
       setBulkMessage(`Deleted ${deleted} completed file(s)`);
