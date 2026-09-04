@@ -4,6 +4,7 @@ import { useAccount, useWalletClient } from 'wagmi';
 import { logger } from '../utils/logger';
 import { createPublicClient, http, erc20Abi, parseAbi } from 'viem';
 import { filecoinCalibration } from '../config/wagmi'; // adjust path
+import { parseUnits } from '@filoz/synapse-sdk'; 
 
 const FilecoinContext = createContext(null);
 
@@ -196,12 +197,22 @@ const fundWallet = useCallback(async (amount = 10) => {
     const depositResult = await payments.deposit({ token: 'USDFC', amount: amountWei });
     await waitForTx(depositResult);
 
-    // 3. Approve operator (REQUIRED – do NOT swallow errors)
-    const operatorResult = await payments.approveOperator({
-      operator: OPERATOR_ADDRESS,
-    });
-    await waitForTx(operatorResult);
-    console.log('[Filecoin] Operator approved');
+    // 3. Approve Warm Storage operator (using approveService)
+    // First check current approval status
+    const approval = await payments.serviceApproval();
+    const requiredLockupPeriod = 86400n; // provider requirement
+    if (!approval?.isApproved || (approval.maxLockupPeriod ?? 0n) < requiredLockupPeriod) {
+      console.log('[Filecoin] Approving Warm Storage operator...');
+      const operatorResult = await payments.approveService({
+        rateAllowance: parseUnits('10', 18),     // max USDFC/epoch
+        lockupAllowance: parseUnits('1000', 18), // max USDFC locked
+        maxLockupPeriod: 86400n,                 // at least 30 days in epochs (or 31536000n for a year)
+      });
+      await waitForTx(operatorResult);
+      console.log('[Filecoin] Operator approved');
+    } else {
+      console.log('[Filecoin] Operator already approved with sufficient lockup period');
+    }
 
     // 4. Refresh balance
     if (wallet) {
