@@ -152,6 +152,8 @@ const PaymentsPage = () => {
         fetchDepositHistory(wallet),
       ]);
 
+      console.log(uploadsResult, actionsResult, deposits, "fdff");
+
       const paymentsList = [];
 
       // Process uploads
@@ -207,6 +209,7 @@ const PaymentsPage = () => {
   useEffect(() => {
     if (synapseReady) {
       fetchOnChainPayments();
+      console.log('Synapse ready, fetching on-chain payments...');
     } else {
       setLoading(false);
       setError('Synapse not initialized. Please connect your wallet.');
@@ -217,6 +220,10 @@ const PaymentsPage = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterType]);
+
+    useEffect(() => {
+    console.info('Recent Payments Updated:', recentPayments);
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);

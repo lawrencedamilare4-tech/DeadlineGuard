@@ -247,7 +247,8 @@ export async function uploadFile(file, options = {}) {
       const txHash = await synapse.payments.approveService({
         rateAllowance: parseUnits('10', 18),     // max USDFC/epoch
         lockupAllowance: parseUnits('1000', 18), // max USDFC locked
-        maxLockupPeriod: 2880n,                  // ~30 days in epochs
+      //  maxLockupPeriod: 2880n,                  // ~30 days in epochs
+      maxLockupPeriod: 86400n, 
       });
 
       // Wait for receipt – ensures approval is active before upload
