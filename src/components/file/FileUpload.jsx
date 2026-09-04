@@ -7,8 +7,8 @@ import { supabase } from '../../services/supabase/client';
 
 const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, resetForm }) => {
   const { user, loading: authLoading } = useSupabase();
-  const { connected = false, synapseReady = false, wallet, refreshPaymentStatus, availableForStorage, approveStorageOperator } = useFilecoin() || {};
-  
+  const { connected = false, synapseReady = false, wallet, refreshPaymentStatus, availableForStorage } = useFilecoin() || {};
+
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
@@ -63,15 +63,13 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, 
       addLog(`[Upload] Due: ${academicMeta.dueDate}`);
       addLog(`[Upload] Wallet: ${wallet?.slice(0, 10)}...`);
 
-      try {
-        // Approve operator if needed (will show wallet pop-up)
-        await approveStorageOperator();
-        addLog('[Upload] Operator approval confirmed');
-      } catch (err) {
-        setError('Operator approval failed: ' + err.message);
-        setStatus('error');
-        return;
-      }
+      // Note: no separate approveStorageOperator() call here anymore.
+      // Operator approval now happens once, in the background, right
+      // after wallet connect (see FilecoinContext's initializeSynapse).
+      // FilecoinService.uploadFile() also checks serviceApproval()
+      // internally and only sends a tx if genuinely still needed, so by
+      // the time a user reaches this point it's normally just a fast
+      // read — not a wallet popup + confirmation wait on every upload.
 
       // Step 1: Upload to Filecoin
       const result = await FilecoinService.uploadFile(file, {
@@ -82,10 +80,10 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, 
         dueDate: academicMeta.dueDate,
         gradeWeight: academicMeta.gradeWeight,
         walletAddress: wallet,
-        skipPrepare: isFunded,  // ← Pass funding status
+        skipPrepare: isFunded, // ← Pass funding status
       });
-      const cid = typeof result?.pieceCid === 'string' 
-        ? result.pieceCid 
+      const cid = typeof result?.pieceCid === 'string'
+        ? result.pieceCid
         : String(result?.pieceCid || 'unknown');
 
       setPieceCid(cid);
@@ -128,10 +126,11 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, 
         addLog(`[Upload] Supabase exception: ${e.message}`);
       }
 
-      // Refresh balance
+      // Refresh balance — fire-and-forget, don't block "done" status on it.
+      // The user doesn't need the fresh number to know the upload finished.
       if (typeof refreshPaymentStatus === 'function') {
-        await refreshPaymentStatus();
-        addLog('[Upload] Balance refreshed');
+        refreshPaymentStatus();
+        addLog('[Upload] Balance refresh triggered');
       }
 
       setStatus('done');
@@ -140,14 +139,14 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, 
       resetForm?.(); // Reset form fields after successful upload
     } catch (err) {
       console.error('[Upload] Failed:', err);
-      
+
       const errorMessage = err.message || '';
-      
+
       if (errorMessage.includes('InsufficientLockupFunds')) {
         const requiredMatch = errorMessage.match(/\([^,]+,\s*(\d+),\s*(\d+)/);
         let requiredUSDFC = 0.124;
         let availableUSDFC = availableForStorage || 0;
-        
+
         if (requiredMatch) {
           requiredUSDFC = parseFloat(requiredMatch[1]) / 1e18;
           availableUSDFC = parseFloat(requiredMatch[2]) / 1e18;
@@ -162,7 +161,7 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, 
       } else {
         setError(errorMessage || 'Upload failed');
       }
-      
+
       setStatus('error');
     }
   };

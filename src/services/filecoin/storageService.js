@@ -228,6 +228,9 @@ import { filecoinCalibration } from '../../config/wagmi'; // adjust path
 
 const RPC_URL = 'https://api.calibration.node.glif.io/rpc/v1';
 
+const REQUIRED_LOCKUP_PERIOD = 31536000n; // ~1 year in epochs — MUST match the value
+                                            // used in FilecoinContext's pre-approval
+
 export async function uploadFile(file, options = {}) {
   const synapse = getSynapse();
 
@@ -240,46 +243,61 @@ export async function uploadFile(file, options = {}) {
     throw new Error('No wallet address available. Please connect your wallet.');
   }
 
-  const tfilBalance = await synapse.client.getBalance({ address: walletAddress });
+  const payerAddress = synapse.account?.address || options.walletAddress;
+  console.log('[Upload] Uploading from wallet:', payerAddress);
+
+  // These three don't depend on each other — run them concurrently
+  // instead of one after another.
+  const [tfilBalance, approval, fileBuffer] = await Promise.all([
+    synapse.client.getBalance({ address: walletAddress }),
+    synapse.payments.serviceApproval(),
+    file.arrayBuffer(),
+  ]);
+
   if (tfilBalance === 0n) {
     throw new Error('You need tFIL for gas. Please get tFIL from the faucet and try again.');
   }
 
-  // Log the connected wallet address to verify it matches the expected one
-  const payerAddress = synapse.account?.address || options.walletAddress;
-  console.log('[Upload] Uploading from wallet:', payerAddress);
-
-  // 1. Approve Warm Storage operator (only if not already approved)
+  // 1. Approve Warm Storage operator — only if not already approved
+  // with a sufficiently long lockup period (matches the check used at
+  // connect-time pre-approval, so the two never disagree).
   try {
-    const approval = await synapse.payments.serviceApproval();
-    if (!approval?.isApproved) {
-      console.log('[Upload] Operator not approved. Requesting approval...');
+    const needsApproval =
+      !approval?.isApproved || (approval.maxLockupPeriod ?? 0n) < REQUIRED_LOCKUP_PERIOD;
+
+    if (needsApproval) {
+      console.log('[Upload] Operator not approved (or lockup too short). Requesting approval...');
       const txHash = await synapse.payments.approveService({
-        rateAllowance: parseUnits('10', 18),     // max USDFC/epoch
-        lockupAllowance: parseUnits('1000', 18), // max USDFC locked
-      //  maxLockupPeriod: 2880n,                  // ~30 days in epochs
-      maxLockupPeriod: 31536000n, 
+        rateAllowance: parseUnits('10', 18),
+        lockupAllowance: parseUnits('1000', 18),
+        maxLockupPeriod: REQUIRED_LOCKUP_PERIOD,
       });
 
-      // Wait for receipt – ensures approval is active before upload
       if (txHash) {
-        await synapse.client.waitForTransactionReceipt({ hash: txHash });
+        const receipt = await synapse.client.waitForTransactionReceipt({
+          hash: txHash,
+          confirmations: 1,
+        });
+        // Check the receipt we already have instead of re-querying
+        // serviceApproval() — saves a round trip.
+        if (receipt.status !== 'success') {
+          throw new Error('Operator approval transaction reverted. Please try again.');
+        }
         console.log('[Upload] Operator approval transaction confirmed');
       } else {
+        // No hash to confirm against — this is the one case where a
+        // fresh read is actually necessary.
         console.warn('[Upload] No hash returned from approveService; checking approval...');
-      }
-
-      // Re-check approval status
-      const recheck = await synapse.payments.serviceApproval();
-      if (!recheck?.isApproved) {
-        throw new Error('Operator approval did not succeed. Please try again.');
+        const recheck = await synapse.payments.serviceApproval();
+        if (!recheck?.isApproved) {
+          throw new Error('Operator approval did not succeed. Please try again.');
+        }
       }
       console.log('[Upload] Operator is now approved');
     } else {
       console.log('[Upload] Operator already approved');
     }
   } catch (err) {
-    // Differentiate between user rejection and other failures
     if (err.message.includes('user rejected') || err.message.includes('rejected')) {
       throw new Error('Operator approval was rejected in your wallet. Please approve the transaction to upload.');
     }
@@ -287,9 +305,7 @@ export async function uploadFile(file, options = {}) {
     throw new Error('Operator approval failed: ' + err.message);
   }
 
-  const fileBuffer = await file.arrayBuffer();
   let bytes = new Uint8Array(fileBuffer);
-
   if (bytes.byteLength < 127) {
     const padded = new Uint8Array(127);
     padded.set(bytes);
@@ -310,7 +326,6 @@ export async function uploadFile(file, options = {}) {
 
   console.log('[Upload] Uploading to Filecoin (1 copy)...');
 
-  // Upload with retry for transient provider health failures
   let attempt = 0;
   const maxAttempts = 5;
   const baseDelayMs = 5000;
@@ -320,7 +335,7 @@ export async function uploadFile(file, options = {}) {
       const result = await synapse.storage.upload(bytes, {
         onProgress: options.onProgress,
         metadata: filecoinMetadata,
-        copies: 1, // Store only one copy (reduces duplicate approvals)
+        copies: 1,
       });
 
       return {
@@ -343,7 +358,7 @@ export async function uploadFile(file, options = {}) {
         err.message.includes('503');
 
       if (isProviderHealthError && attempt < maxAttempts - 1) {
-        const delay = baseDelayMs * Math.pow(2, attempt); // exponential backoff
+        const delay = baseDelayMs * Math.pow(2, attempt);
         console.warn(`[Upload] Provider health check failed (attempt ${attempt + 1}/${maxAttempts}). Retrying in ${delay / 1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         attempt++;
