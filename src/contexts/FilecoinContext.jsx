@@ -172,6 +172,20 @@ export const FilecoinProvider = ({ children }) => {
   }
 };
 
+const approveStorageOperator = useCallback(async () => {
+  const synapse = FilecoinService.getSynapse();
+  if (!synapse) throw new Error('Synapse not initialized');
+  const payments = synapse.payments;
+
+  const tx = await payments.approveService({
+    rateAllowance: parseUnits('10', 18),
+    lockupAllowance: parseUnits('1000', 18),
+    maxLockupPeriod: 86400n, // or 31536000n for extra safety
+  });
+  await synapse.client.waitForTransactionReceipt({ hash: tx });
+}, []);
+
+
 const fundWallet = useCallback(async (amount = 10) => {
   setFunding(true);
   setError(null);
@@ -264,6 +278,7 @@ const fundWallet = useCallback(async (amount = 10) => {
     disconnectWallet,
     fundWallet,
     refreshPaymentStatus,
+    approveStorageOperator
   };
 
   return (
@@ -294,6 +309,7 @@ export const useFilecoin = () => {
       disconnectWallet: () => {},
       fundWallet: async () => false,
       refreshPaymentStatus: async () => {},
+      approveStorageOperator: async () => {},
     };
   }
   return context;

@@ -235,6 +235,16 @@ export async function uploadFile(file, options = {}) {
     throw new Error('Synapse storage module not available. Please reconnect your wallet.');
   }
 
+  const walletAddress = options.walletAddress || synapse.account?.address;
+  if (!walletAddress) {
+    throw new Error('No wallet address available. Please connect your wallet.');
+  }
+
+  const tfilBalance = await synapse.client.getBalance({ address: walletAddress });
+  if (tfilBalance === 0n) {
+    throw new Error('You need tFIL for gas. Please get tFIL from the faucet and try again.');
+  }
+
   // Log the connected wallet address to verify it matches the expected one
   const payerAddress = synapse.account?.address || options.walletAddress;
   console.log('[Upload] Uploading from wallet:', payerAddress);

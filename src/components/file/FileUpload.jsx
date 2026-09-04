@@ -7,7 +7,7 @@ import { supabase } from '../../services/supabase/client';
 
 const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, resetForm }) => {
   const { user, loading: authLoading } = useSupabase();
-  const { connected = false, synapseReady = false, wallet, refreshPaymentStatus, availableForStorage } = useFilecoin() || {};
+  const { connected = false, synapseReady = false, wallet, refreshPaymentStatus, availableForStorage, approveStorageOperator } = useFilecoin() || {};
   
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState('idle');
@@ -62,6 +62,16 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, 
       addLog(`[Upload] Assignment: ${academicMeta.assignmentTitle}`);
       addLog(`[Upload] Due: ${academicMeta.dueDate}`);
       addLog(`[Upload] Wallet: ${wallet?.slice(0, 10)}...`);
+
+      try {
+        // Approve operator if needed (will show wallet pop-up)
+        await approveStorageOperator();
+        addLog('[Upload] Operator approval confirmed');
+      } catch (err) {
+        setError('Operator approval failed: ' + err.message);
+        setStatus('error');
+        return;
+      }
 
       // Step 1: Upload to Filecoin
       const result = await FilecoinService.uploadFile(file, {
