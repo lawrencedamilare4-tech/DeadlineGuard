@@ -89,6 +89,12 @@ const UploadPage = () => {
           gradeWeight: Number(gradeWeight),
         }}
         isFormValid={isFormValid()}
+        resetForm={() => {
+          setCourseName('');
+          setAssignmentTitle('');
+          setDueDate('');
+          setGradeWeight(20);
+        }}
       />
     </div>
   );

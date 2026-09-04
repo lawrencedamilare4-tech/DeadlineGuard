@@ -145,55 +145,50 @@ export const FilecoinProvider = ({ children }) => {
     }
   };
 
-  const fundWallet = useCallback(async (amount = 10) => {
-    setFunding(true);
-    setError(null);
-    try {
-      const synapse = FilecoinService.getSynapse();
-      if (!synapse) throw new Error('Synapse not initialized');
-      const payments = synapse.payments;
-      const amountWei = BigInt(Math.floor(amount * 1e18));
-      const previousDeposited = depositedBalance || 0;
+const fundWallet = useCallback(async (amount = 10) => {
+  setFunding(true);
+  setError(null);
+  try {
+    const synapse = FilecoinService.getSynapse();
+    if (!synapse) throw new Error('Synapse not initialized');
+    const payments = synapse.payments;
+    const amountWei = BigInt(Math.floor(amount * 1e18));
 
-      // Optionally check allowance and skip approval if already sufficient
-      const allowance = await publicClient.readContract({
-        address: USDFC_ADDRESS,
-        abi: erc20Abi,
-        functionName: 'allowance',
-        args: [wallet, PAYMENTS_ADDRESS],
-      });
-
-      if (allowance < amountWei) {
-        const approveResult = await payments.approve({ token: 'USDFC', amount: amountWei });
-        await waitForTx(approveResult);
-      }
-
-      const depositResult = await payments.deposit({ token: 'USDFC', amount: amountWei });
-      await waitForTx(depositResult);
-
-      // Approve operator if needed (optional, catch errors)
-      try {
-        const operatorResult = await payments.approveOperator({
-          operator: OPERATOR_ADDRESS,
-        });
-        await waitForTx(operatorResult);
-      } catch (e) {
-        console.warn('Operator approval skipped/failed:', e.message);
-      }
-
-      // Poll until the deposited balance actually reflects the new funds,
-      // instead of trusting a single read right after the tx confirms.
-      if (wallet) {
-        await pollForBalanceChange(wallet, previousDeposited);
-      }
-      return true;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setFunding(false);
+    // 1. Approve USDFC if needed
+    const allowance = await publicClient.readContract({
+      address: USDFC_ADDRESS,
+      abi: erc20Abi,
+      functionName: 'allowance',
+      args: [wallet, PAYMENTS_ADDRESS],
+    });
+    if (allowance < amountWei) {
+      const approveResult = await payments.approve({ token: 'USDFC', amount: amountWei });
+      await waitForTx(approveResult);
     }
-  }, [wallet, depositedBalance, pollForBalanceChange]);
+
+    // 2. Deposit USDFC
+    const depositResult = await payments.deposit({ token: 'USDFC', amount: amountWei });
+    await waitForTx(depositResult);
+
+    // 3. Approve operator (REQUIRED – do NOT swallow errors)
+    const operatorResult = await payments.approveOperator({
+      operator: OPERATOR_ADDRESS,
+    });
+    await waitForTx(operatorResult);
+    console.log('[Filecoin] Operator approved');
+
+    // 4. Refresh balance
+    if (wallet) {
+      await fetchBalance(wallet);
+    }
+    return true;
+  } catch (err) {
+    setError(err.message);
+    throw err;
+  } finally {
+    setFunding(false);
+  }
+}, [wallet, depositedBalance, fetchBalance, publicClient]);
 
   const disconnectWallet = useCallback(() => {
     localStorage.removeItem('deadlineguard_wallet');

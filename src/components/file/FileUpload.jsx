@@ -5,7 +5,7 @@ import { useSupabase } from '../../hooks/useSupabase';
 import { useFilecoin } from '../../contexts/FilecoinContext';
 import { supabase } from '../../services/supabase/client';
 
-const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }) => {
+const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, resetForm }) => {
   const { user, loading: authLoading } = useSupabase();
   const { connected = false, synapseReady = false, wallet, refreshPaymentStatus, availableForStorage } = useFilecoin() || {};
   
@@ -127,6 +127,7 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false }
       setStatus('done');
       addLog('[Upload] COMPLETE!');
       if (onUploadComplete) onUploadComplete({ pieceCid: cid });
+      resetForm?.(); // Reset form fields after successful upload
     } catch (err) {
       console.error('[Upload] Failed:', err);
       
