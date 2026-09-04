@@ -15,7 +15,7 @@ const ERC20_TRANSFER_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 value)'
 ];
 
-const PAYMENT_TYPES = ['all', 'STORAGE', 'FUNDING', ];
+const PAYMENT_TYPES = ['all', 'STORAGE', 'FUNDING'];
 
 const PaymentsPage = () => {
   const { 
@@ -40,32 +40,49 @@ const PaymentsPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  // Cached deposit history fetch
   const fetchDepositHistory = useCallback(async (walletAddress) => {
     if (!walletAddress) return [];
+
+    // Check session cache first
+    const cacheKey = `deposits-${walletAddress.toLowerCase()}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {
+        // ignore and refetch
+      }
+    }
 
     const provider = new ethers.JsonRpcProvider('https://api.calibration.node.glif.io/rpc/v1');
     const usdfcContract = new ethers.Contract(USDFC_ADDRESS, ERC20_TRANSFER_ABI, provider);
 
     const filter = usdfcContract.filters.Transfer(walletAddress, PAYMENTS_ADDRESS);
     const currentBlock = await provider.getBlockNumber();
-    const blockRange = 2500;
+    const blockRange = 1000; // reduced range for faster fetch
     const fromBlock = Math.max(0, currentBlock - blockRange);
     const logs = await usdfcContract.queryFilter(filter, fromBlock, currentBlock);
 
     const deposits = [];
     for (const log of logs) {
-      const { from, to, value } = log.args;
-      const block = await provider.getBlock(log.blockNumber);
+      const { value } = log.args;
+      // Approximate timestamp using average block time (30s)
+      const blockAge = currentBlock - log.blockNumber;
+      const approxTimestamp = Date.now() - blockAge * 30000;
       deposits.push({
         id: `deposit-${log.transactionHash}`,
         type: 'FUNDING',
         description: 'Deposited USDFC to storage',
         amount: `${ethers.formatUnits(value, 18)} USDFC`,
-        date: new Date(block.timestamp * 1000).toISOString(),
+        date: new Date(approxTimestamp).toISOString(),
         status: 'COMPLETED',
         txHash: log.transactionHash,
       });
     }
+
+    // Cache for 10 minutes
+    sessionStorage.setItem(cacheKey, JSON.stringify(deposits));
     return deposits;
   }, []);
 
@@ -83,7 +100,7 @@ const PaymentsPage = () => {
       const synapse = FilecoinService.getSynapse();
       const payments = synapse.payments;
 
-      // Fetch wallet balance
+      // Fetch wallet balance (can be done in parallel with user fetch)
       let balance = 0;
       try {
         const balanceBigInt = await payments.walletBalance({ token: 'USDFC' });
@@ -92,7 +109,7 @@ const PaymentsPage = () => {
         console.warn('[Payments] walletBalance failed:', e.message);
       }
 
-      // Fetch operator approvals
+      // Fetch operator approvals (optional)
       let approvals = null;
       try {
         if (typeof payments.getOperatorApprovals === 'function') {
@@ -106,70 +123,72 @@ const PaymentsPage = () => {
       const spendRate = 0.05 / 86400;
       const runway = spendRate > 0 ? (availableForStorage || balance) / spendRate : Infinity;
 
-      const info = {
+      setPaymentInfo({
         balance,
         spendRate,
         runway,
         approvals,
-      };
-      setPaymentInfo(info);
+      });
 
-      // Fetch recent payments from Supabase
-      const paymentsList = [];
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        // Uploads (storage)
-        const { data: uploads } = await supabase
+      // Get current user (needed for agent actions filter)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No authenticated user found');
+
+      // Parallel fetch of files, actions, and deposits
+      const [uploadsResult, actionsResult, deposits] = await Promise.all([
+        supabase
           .from('files')
           .select('*')
+          .eq('wallet_address', wallet)
           .order('created_at', { ascending: false })
-          .limit(50);
-
-        // Agent actions
-        const { data: actions } = await supabase
+          .limit(50),
+        supabase
           .from('agent_actions')
           .select('*')
+          .eq('user_id', user.id)
           .in('action_type', ['ALERT', 'ARCHIVE', 'PROTECT', 'DELETE'])
           .order('created_at', { ascending: false })
-          .limit(50);
+          .limit(50),
+        fetchDepositHistory(wallet),
+      ]);
 
-        if (uploads) {
-  for (const upload of uploads) {
-    const course = upload.course_name ? `${upload.course_name} - ` : '';
-    const description = upload.assignment_title
-      ? `${course}${upload.assignment_title}`
-      : `Stored: ${upload.file_name}`;
-    paymentsList.push({
-      id: `upload-${upload.id}`,
-      type: 'STORAGE',
-      description,
-      pieceCid: upload.piece_cid,
-      size: upload.file_size,
-      date: upload.created_at,
-      status: 'COMPLETED',
-      amount: '~0.124 USDFC',
-    });
-  }
-}
-        if (actions) {
-          for (const action of actions) {
-            paymentsList.push({
-              id: `action-${action.id}`,
-              type: action.action_type,
-              description: action.description,
-              date: action.created_at,
-              status: 'COMPLETED',
-            });
-          }
+      const paymentsList = [];
+
+      // Process uploads
+      if (uploadsResult.data) {
+        for (const upload of uploadsResult.data) {
+          const course = upload.course_name ? `${upload.course_name} - ` : '';
+          const description = upload.assignment_title
+            ? `${course}${upload.assignment_title}`
+            : `Stored: ${upload.file_name}`;
+          paymentsList.push({
+            id: `upload-${upload.id}`,
+            type: 'STORAGE',
+            description,
+            pieceCid: upload.piece_cid,
+            size: upload.file_size,
+            date: upload.created_at,
+            status: 'COMPLETED',
+            amount: '~0.124 USDFC',
+          });
         }
-      } catch (supabaseErr) {
-        console.warn('[Payments] Supabase fetch:', supabaseErr.message);
       }
 
-      // Add deposit history from chain
-      if (wallet) {
-        const deposits = await fetchDepositHistory(wallet);
+      // Process agent actions
+      if (actionsResult.data) {
+        for (const action of actionsResult.data) {
+          paymentsList.push({
+            id: `action-${action.id}`,
+            type: action.action_type,
+            description: action.description,
+            date: action.created_at,
+            status: 'COMPLETED',
+          });
+        }
+      }
+
+      // Add deposits
+      if (deposits) {
         paymentsList.push(...deposits);
       }
 
@@ -284,7 +303,7 @@ const PaymentsPage = () => {
         <div className="bg-white dark:bg-shamrock-darkest rounded-lg border border-gray-200 dark:border-shamrock-darker p-6">
           <div className="flex items-center gap-2 mb-2">
             <Wallet className="h-5 w-5 text-shamrock" />
-            <p className="text-sm text-gray-500">MetaMask</p>
+            <p className="text-sm text-gray-500">Wallet Balance</p>
           </div>
           <p className="text-2xl font-bold text-white">${balance.toFixed(2)}</p>
         </div>

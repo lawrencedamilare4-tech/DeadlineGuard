@@ -35,34 +35,20 @@ const DashboardPage = () => {
   const [fundSuccess, setFundSuccess] = useState(false);
   const [fundError, setFundError] = useState(null);
 
-  const handleFundWallet = async () => {
-    setFundSuccess(false);
-    setFundError(null);
-    
-    try {
-      await fundWallet(fundAmount);
-      setFundSuccess(true);
-
-      // Wait 5 seconds for the blockchain to process the deposit
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      
-      if (typeof refreshPaymentStatus === 'function') {
-        await refreshPaymentStatus();
-      }
-
-      // Optionally, wait another 3 seconds and refresh again if needed
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      if (typeof refreshPaymentStatus === 'function') {
-        await refreshPaymentStatus();
-      }
-
-      // Clear success message after a few seconds
-      setTimeout(() => setFundSuccess(false), 5000);
-    } catch (err) {
-      setFundError(err.message || 'Funding failed');
-    }
-  };
-
+const handleFundWallet = async () => {
+  setFundSuccess(false);
+  setFundError(null);
+  
+  try {
+    await fundWallet(fundAmount);
+    setFundSuccess(true);
+    // Balances are already updated inside fundWallet via fetchBalance
+    // No need to call refreshPaymentStatus again, but you can if you want
+    setTimeout(() => setFundSuccess(false), 5000);
+  } catch (err) {
+    setFundError(err.message || 'Funding failed');
+  }
+};
   const { address: wagmiAddress, isConnected } = useAccount();
 
   const [weather, setWeather] = useState(null);
