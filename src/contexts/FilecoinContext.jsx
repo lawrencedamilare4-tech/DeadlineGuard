@@ -135,15 +135,41 @@ export const FilecoinProvider = ({ children }) => {
     return false;
   }, []);
 
+  // const initializeSynapse = async (walletAddress, walletClient) => {
+  //   try {
+  //     await FilecoinService.initializeSynapse(walletAddress, { walletClient });
+  //     setSynapseReady(true);
+  //   } catch (err) {
+  //     console.warn('[Filecoin] Synapse init failed:', err.message);
+  //     setSynapseReady(false);
+  //   }
+  // };
+
   const initializeSynapse = async (walletAddress, walletClient) => {
-    try {
-      await FilecoinService.initializeSynapse(walletAddress, { walletClient });
-      setSynapseReady(true);
-    } catch (err) {
-      console.warn('[Filecoin] Synapse init failed:', err.message);
-      setSynapseReady(false);
+  try {
+    await FilecoinService.initializeSynapse(walletAddress, { walletClient });
+    setSynapseReady(true);
+
+    // Approve storage operator (one-time)
+    const synapse = FilecoinService.getSynapse();
+    if (synapse?.payments?.approveOperator) {
+      try {
+        await synapse.payments.approveOperator({
+          operator: '0x02925630df557F957f70E112bA06e50965417CA0',
+        });
+        console.log('[Filecoin] Operator approved');
+      } catch (err) {
+        // Ignore if already approved
+        if (!err.message.includes('already approved') && !err.message.includes('OperatorAlreadyApproved')) {
+          console.warn('[Filecoin] Operator approval failed:', err.message);
+        }
+      }
     }
-  };
+  } catch (err) {
+    console.warn('[Filecoin] Synapse init failed:', err.message);
+    setSynapseReady(false);
+  }
+};
 
 const fundWallet = useCallback(async (amount = 10) => {
   setFunding(true);
