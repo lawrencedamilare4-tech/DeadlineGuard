@@ -185,7 +185,6 @@ const approveStorageOperator = useCallback(async () => {
   await synapse.client.waitForTransactionReceipt({ hash: tx });
 }, []);
 
-
 const fundWallet = useCallback(async (amount = 10) => {
   setFunding(true);
   setError(null);
@@ -194,44 +193,32 @@ const fundWallet = useCallback(async (amount = 10) => {
     if (!synapse) throw new Error('Synapse not initialized');
     const payments = synapse.payments;
     const amountWei = BigInt(Math.floor(amount * 1e18));
+    const requiredLockupPeriod = 86400n;
+    const previousDeposited = depositedBalance; // snapshot before the tx
 
-    // 1. Approve USDFC if needed
-    const allowance = await publicClient.readContract({
-      address: USDFC_ADDRESS,
-      abi: erc20Abi,
-      functionName: 'allowance',
-      args: [wallet, PAYMENTS_ADDRESS],
-    });
-    if (allowance < amountWei) {
-      const approveResult = await payments.approve({ token: 'USDFC', amount: amountWei });
-      await waitForTx(approveResult);
-    }
-
-    // 2. Deposit USDFC
-    const depositResult = await payments.deposit({ token: 'USDFC', amount: amountWei });
-    await waitForTx(depositResult);
-
-    // 3. Approve Warm Storage operator (using approveService)
-    // First check current approval status
     const approval = await payments.serviceApproval();
-    const requiredLockupPeriod = 86400n; // provider requirement
-    if (!approval?.isApproved || (approval.maxLockupPeriod ?? 0n) < requiredLockupPeriod) {
-      console.log('[Filecoin] Approving Warm Storage operator...');
-      const operatorResult = await payments.approveService({
-        rateAllowance: parseUnits('10', 18),     // max USDFC/epoch
-        lockupAllowance: parseUnits('1000', 18), // max USDFC locked
-        maxLockupPeriod: 86400n,                 // at least 30 days in epochs (or 31536000n for a year)
-      });
-      await waitForTx(operatorResult);
-      console.log('[Filecoin] Operator approved');
-    } else {
-      console.log('[Filecoin] Operator already approved with sufficient lockup period');
-    }
+    const needsOperatorApproval =
+      !approval?.isApproved || (approval.maxLockupPeriod ?? 0n) < requiredLockupPeriod;
 
-    // 4. Refresh balance
-    if (wallet) {
-      await fetchBalance(wallet);
-    }
+    const txHash = needsOperatorApproval
+      ? await payments.depositWithPermitAndApproveOperator({
+          amount: amountWei,
+          rateAllowance: parseUnits('10', 18),
+          lockupAllowance: parseUnits('1000', 18),
+          maxLockupPeriod: requiredLockupPeriod,
+        })
+      : await payments.depositWithPermit({ amount: amountWei });
+
+    await waitForTx(txHash);
+
+    // Optimistic bump in the right units — just deposited, doesn't touch
+    // availableForStorage/lockedBalance/isFunded, which stay stale until reconciled below
+    setDepositedBalance((prev) => (prev ?? 0) + amount);
+
+    // Reconcile in the background — poll instead of a single fetch, since
+    // RPC replicas can lag right after confirmation
+    if (wallet) pollForBalanceChange(wallet, previousDeposited);
+
     return true;
   } catch (err) {
     setError(err.message);
@@ -239,7 +226,63 @@ const fundWallet = useCallback(async (amount = 10) => {
   } finally {
     setFunding(false);
   }
-}, [wallet, depositedBalance, fetchBalance, publicClient]);
+}, [wallet, depositedBalance, pollForBalanceChange]);
+
+
+// const fundWallet = useCallback(async (amount = 10) => {
+//   setFunding(true);
+//   setError(null);
+//   try {
+//     const synapse = FilecoinService.getSynapse();
+//     if (!synapse) throw new Error('Synapse not initialized');
+//     const payments = synapse.payments;
+//     const amountWei = BigInt(Math.floor(amount * 1e18));
+
+//     // 1. Approve USDFC if needed
+//     const allowance = await publicClient.readContract({
+//       address: USDFC_ADDRESS,
+//       abi: erc20Abi,
+//       functionName: 'allowance',
+//       args: [wallet, PAYMENTS_ADDRESS],
+//     });
+//     if (allowance < amountWei) {
+//       const approveResult = await payments.approve({ token: 'USDFC', amount: amountWei });
+//       await waitForTx(approveResult);
+//     }
+
+//     // 2. Deposit USDFC
+//     const depositResult = await payments.deposit({ token: 'USDFC', amount: amountWei });
+//     await waitForTx(depositResult);
+
+//     // 3. Approve Warm Storage operator (using approveService)
+//     // First check current approval status
+//     const approval = await payments.serviceApproval();
+//     const requiredLockupPeriod = 86400n; // provider requirement
+//     if (!approval?.isApproved || (approval.maxLockupPeriod ?? 0n) < requiredLockupPeriod) {
+//       console.log('[Filecoin] Approving Warm Storage operator...');
+//       const operatorResult = await payments.approveService({
+//         rateAllowance: parseUnits('10', 18),     // max USDFC/epoch
+//         lockupAllowance: parseUnits('1000', 18), // max USDFC locked
+//         maxLockupPeriod: 86400n,                 // at least 30 days in epochs (or 31536000n for a year)
+//       });
+//       await waitForTx(operatorResult);
+//       console.log('[Filecoin] Operator approved');
+//     } else {
+//       console.log('[Filecoin] Operator already approved with sufficient lockup period');
+//     }
+
+//     // 4. Refresh balance
+//     if (wallet) {
+//       await fetchBalance(wallet);
+//     }
+//     return true;
+//   } catch (err) {
+//     setError(err.message);
+//     throw err;
+//   } finally {
+//     setFunding(false);
+//   }
+// }, [wallet, depositedBalance, fetchBalance, publicClient]);
 
   const disconnectWallet = useCallback(() => {
     localStorage.removeItem('deadlineguard_wallet');
