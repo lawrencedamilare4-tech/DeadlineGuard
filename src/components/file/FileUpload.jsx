@@ -233,15 +233,28 @@ const FileUpload = ({ onUploadComplete, academicMeta = {}, isFormValid = false, 
 
       {/* Progress */}
       {status === 'uploading' && (
-        <div className="mt-4">
+      <div className="mt-4">
+        {progress >= 100 ? (
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-shamrock" />
+              Finalizing on-chain…
+            </span>
+            <span className="text-shamrock">100%</span>
+          </div>
+        ) : (
           <div className="flex items-center justify-between text-sm mb-2">
             <span className="text-gray-600 dark:text-gray-300">Uploading to Filecoin...</span>
             <span>{Math.round(progress)}%</span>
           </div>
-          <div className="w-full bg-gray-200 dark:bg-shamrock-darker rounded-full h-2">
-            <div className="bg-shamrock h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
-          </div>
+        )}
+        <div className="w-full bg-gray-200 dark:bg-shamrock-darker rounded-full h-2">
+          <div
+            className={`h-2 rounded-full transition-all ${progress >= 100 ? 'bg-shamrock animate-pulse' : 'bg-shamrock'}`}
+            style={{ width: `${Math.min(100, progress)}%` }}
+          />
         </div>
+      </div>
       )}
 
       {/* Upload Log */}
