@@ -248,7 +248,7 @@ export async function uploadFile(file, options = {}) {
         rateAllowance: parseUnits('10', 18),     // max USDFC/epoch
         lockupAllowance: parseUnits('1000', 18), // max USDFC locked
       //  maxLockupPeriod: 2880n,                  // ~30 days in epochs
-      maxLockupPeriod: 86400n, 
+      maxLockupPeriod: 31536000n, 
       });
 
       // Wait for receipt – ensures approval is active before upload
